@@ -12,3 +12,5 @@ out/
 # dotenv
 .env
 .env.local
+
+/src/generated/prisma
