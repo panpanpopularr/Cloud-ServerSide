@@ -100,14 +100,13 @@ app.get('/projects/:id', async (req,res)=>{
 });
 
 // Tasks
+// api/src/index.js (เฉพาะ handler นี้)
 app.post('/projects/:projectId/tasks', async (req,res)=>{
   try {
     const { title, description, deadline, status } = req.body || {};
-    if (!title) return res.status(400).json({ error:'title is required' });
+    if (!title) return res.status(400).json({ error: 'title is required' });
 
-    // projectId ใส่ลงฟิลด์ตรง ๆ กันพลาด
-    const statusCode = status ? normalizeStatus(status) : 'UNASSIGNED';
-    if (status && !statusCode) return res.status(400).json({ error:'invalid status' });
+    const statusCode = status ?? 'UNASSIGNED';
 
     const task = await prisma.task.create({
       data: {
@@ -115,8 +114,12 @@ app.post('/projects/:projectId/tasks', async (req,res)=>{
         description: description ?? null,
         deadline: deadline ? new Date(deadline) : null,
         status: statusCode,
-        projectId: req.params.projectId,
-        createdById: DEMO_USER_ID, // ถ้า schema ให้ optional ก็ลบได้
+
+        // ✅ ใช้ relation connect ตามที่ schema ต้องการ
+        project: { connect: { id: req.params.projectId } },
+
+        // ✅ กัน createdById เป็น null (ถ้า schema บังคับ)
+        ...(DEMO_USER_ID ? { creator: { connect: { id: DEMO_USER_ID } } } : {})
       }
     });
 
@@ -124,7 +127,7 @@ app.post('/projects/:projectId/tasks', async (req,res)=>{
     res.json(task);
   } catch (e) {
     console.error('create task error', e);
-    res.status(400).json({ error:'create task failed' });
+    res.status(400).json({ error: 'create task failed' });
   }
 });
 
@@ -206,4 +209,7 @@ app.get('/projects/:projectId/activity', async (req,res)=>{
 app.use('/uploads', express.static(path.join(UPLOAD_ROOT)));
 
 const PORT = process.env.PORT || 4000;
-httpServer.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
+(async () => {
+  await ensureDemoUser();
+  httpServer.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
+})();
