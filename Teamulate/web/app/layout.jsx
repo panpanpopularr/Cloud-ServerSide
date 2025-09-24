@@ -1,18 +1,16 @@
-
 export const metadata = { title: 'Teamulate' };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body style={{ fontFamily: 'ui-sans-serif, system-ui', background: '#0b0f14', color: '#e6edf3' }}>
-        <div style={{ display:'flex', gap:16, padding:16 }}>
-          <aside style={{ width:280 }}>
-            <h1 style={{ marginTop:0 }}>Teamulate</h1>
-            <p style={{ opacity:.8, fontSize:14 }}>Cloud-inspired collaborative workspace (MVP)</p>
-            <div style={{ fontSize:12, opacity:.7, marginTop:16 }}>API: http://localhost:4000</div>
-            <div style={{ fontSize:12, opacity:.7 }}>WebSocket live activity enabled</div>
-          </aside>
-          <main style={{ flex:1 }}>{children}</main>
+    <html lang="th">
+      <body style={{background:'#0b1220', color:'#e6edf3', fontFamily:'system-ui,Segoe UI,Arial'}}>
+        <div style={{maxWidth:1100, margin:'24px auto'}}>
+          <h1 style={{fontSize:36, margin:'0 0 8px'}}>Teamulate</h1>
+          <div style={{opacity:.8, marginBottom:16}}>
+            Cloud-inspired collaborative workspace (MVP)
+            <div style={{fontSize:12, opacity:.6}}>API: http://localhost:4000 · WebSocket live activity enabled</div>
+          </div>
+          {children}
         </div>
       </body>
     </html>

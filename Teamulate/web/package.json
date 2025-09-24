@@ -1,19 +1,17 @@
 {
   "name": "teamulate-web",
-  "version": "0.1.0",
   "private": true,
-  "type": "module",
+  "version": "0.1.0",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000"
   },
   "dependencies": {
-    "ci": "^2.3.0",
     "next": "14.2.6",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "socket.io-client": "^4.7.5",
-    "swr": "^2.2.5"
+    "swr": "^2.2.5",
+    "socket.io-client": "^4.8.1"
   }
 }

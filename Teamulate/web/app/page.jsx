@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 
 const API = 'http://localhost:4000';
-const fetcher = (url) => fetch(url).then(r=>r.json());
+const fetcher = (url) => fetch(url, { cache: 'no-store' }).then(r => r.json());
 
 const STATUS = [
   { code: 'ACTIVE',     label: 'กำลังทำ' },
@@ -14,177 +14,148 @@ const STATUS = [
   { code: 'REVIEW',     label: 'กำลังตรวจ' },
   { code: 'DONE',       label: 'เสร็จแล้ว' },
 ];
-const codeToLabel = (code) => STATUS.find(s => s.code === code)?.label ?? code ?? '—';
-const DEFAULT_STATUS_CODE = 'UNASSIGNED';
+const codeToLabel = (c) => STATUS.find(s => s.code === c)?.label ?? c ?? '—';
+const DEFAULT_STATUS = 'UNASSIGNED';
 
 export default function Page() {
-  // Projects
+  // projects
   const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, fetcher);
-  const [pname, setPname] = useState('');
-  const [pdesc, setPdesc] = useState('');
+  const [pname, setPname] = useState(''); const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
 
-  // Tasks
-  const { data: tasks, mutate: refetchTasks } = useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, fetcher);
-  const [title, setTitle] = useState('');
-  const [deadline, setDeadline] = useState('');
-  const [statusNew, setStatusNew] = useState(DEFAULT_STATUS_CODE);
+  // tasks
+  const { data: tasks = [], mutate: refetchTasks } =
+    useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, fetcher);
+  const [title, setTitle] = useState(''); const [deadline, setDeadline] = useState('');
+  const [statusNew, setStatusNew] = useState(DEFAULT_STATUS);
 
-  // Files
-  const { data: files, mutate: refetchFiles } = useSWR(() => selected ? `${API}/projects/${selected}/files` : null, fetcher);
+  // files
+  const { data: files = [], mutate: refetchFiles } =
+    useSWR(() => selected ? `${API}/projects/${selected}/files` : null, fetcher);
   const fileRef = useRef();
 
-  // Activity
-  const { data: activity, mutate: refetchActivity } = useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, fetcher);
+  // activity
+  const { data: activity, mutate: refetchActivity } =
+    useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, fetcher);
 
-  // UI state
-  const [savingId, setSavingId] = useState(null);
-  const [msg, setMsg] = useState('');
-
-  // Socket live updates
-  useEffect(()=>{
+  // socket
+  useEffect(() => {
     if (!selected) return;
     const socket = io(API);
     socket.emit('join', { projectId: selected });
     socket.on('activity:new', () => {
-      refetchActivity();
-      refetchTasks();
-      refetchFiles();
+      refetchActivity(); refetchTasks(); refetchFiles();
     });
     return () => socket.disconnect();
-  }, [selected]);
+  }, [selected]); // eslint-disable-line
 
+  // actions
   const createProject = async () => {
     if (!pname.trim()) return;
-    await fetch(`${API}/projects`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ name: pname, description: pdesc })
-    });
+    const r = await fetch(`${API}/projects`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name:pname, description:pdesc }) });
+    if (!r.ok) return alert('สร้างโปรเจกต์ไม่สำเร็จ');
+    const proj = await r.json();
     setPname(''); setPdesc('');
+    await refetchProjects();
+    setSelected(proj.id);
+  };
+
+  const deleteProject = async (id) => {
+    if (!confirm('ลบโปรเจกต์นี้?')) return;
+    const r = await fetch(`${API}/projects/${id}`, { method:'DELETE' });
+    if (!r.ok) return alert('ลบโปรเจกต์ไม่สำเร็จ');
+    if (selected === id) setSelected(null);
     await refetchProjects();
   };
 
   const createTask = async () => {
     if (!selected || !title.trim()) return;
-    await fetch(`${API}/projects/${selected}/tasks`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+    const r = await fetch(`${API}/projects/${selected}/tasks`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ title, deadline, status: statusNew })
     });
-    setTitle(''); setDeadline(''); setStatusNew(DEFAULT_STATUS_CODE);
+    if (!r.ok) return alert('เพิ่มงานไม่สำเร็จ');
+    setTitle(''); setDeadline(''); setStatusNew(DEFAULT_STATUS);
     await refetchTasks();
   };
 
   const changeTaskStatus = async (task, newCode) => {
-    try {
-      setSavingId(task.id);
-      const optimistic = (tasks ?? []).map(x => x.id === task.id ? { ...x, status: newCode } : x);
-      await refetchTasks(optimistic, { revalidate: false });
+    const r = await fetch(`${API}/tasks/${task.id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status: newCode })
+    });
+    if (!r.ok) { alert('อัปเดตสถานะไม่สำเร็จ'); return; }
+    await refetchTasks();
+  };
 
-      const resp = await fetch(`${API}/tasks/${task.id}`, {
-        method:'PATCH',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ status: newCode })
-      });
-
-      if (resp.status === 404) {
-        const filtered = (tasks ?? []).filter(x => x.id !== task.id);
-        await refetchTasks(filtered, { revalidate: false });
-        await refetchTasks();
-        console.warn('Task not found (maybe reset/migrated).');
-        return;
-      }
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-      await refetchTasks();
-      setMsg(`อัปเดตสถานะเป็น "${codeToLabel(newCode)}" แล้ว`);
-      setTimeout(()=>setMsg(''), 2000);
-    } catch (e) {
-      console.error(e);
-      await refetchTasks();
-      alert('อัปเดตสถานะไม่สำเร็จ');
-    } finally {
-      setSavingId(null);
-    }
+  const deleteTask = async (id) => {
+    if (!confirm('ลบงานนี้?')) return;
+    const r = await fetch(`${API}/tasks/${id}`, { method:'DELETE' });
+    if (!r.ok) return alert('ลบงานไม่สำเร็จ');
+    await refetchTasks();
   };
 
   const uploadFile = async () => {
     if (!selected || !fileRef.current?.files?.[0]) return;
     const fd = new FormData();
     fd.append('file', fileRef.current.files[0]);
-    await fetch(`${API}/projects/${selected}/files/upload`, { method:'POST', body: fd });
+    const r = await fetch(`${API}/projects/${selected}/files/upload`, { method:'POST', body: fd });
+    if (!r.ok) return alert('อัปโหลดไม่สำเร็จ');
     fileRef.current.value = '';
     await refetchFiles();
   };
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'260px 1fr 320px', gap:16 }}>
-      {/* Projects sidebar */}
-      <div>
-        <div style={{ padding:12, background:'#0f1720', border:'1px solid #1e293b', borderRadius:12 }}>
-          <h3 style={{ marginTop:0 }}>Projects</h3>
-          <div>
-            <input placeholder="Name" value={pname} onChange={e=>setPname(e.target.value)} style={inp} />
-            <input placeholder="Description" value={pdesc} onChange={e=>setPdesc(e.target.value)} style={inp} />
-            <button onClick={createProject} style={btn}>Create</button>
-          </div>
-          <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-            {projects?.map(p=>(
-              <li key={p.id}>
-                <button
-                  style={{ ...btn, width:'100%', background:selected===p.id?'#2563eb':'#122338' }}
-                  onClick={()=>setSelected(p.id)}
-                >
-                  {p.name}
-                </button>
-              </li>
-            )) || <div style={{ opacity:.7 }}>No projects.</div>}
-          </ul>
-        </div>
+    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 380px', gap:16 }}>
+      {/* Projects */}
+      <div style={card}>
+        <h3 style={{ marginTop:0 }}>Projects</h3>
+        <input placeholder="Name" value={pname} onChange={e=>setPname(e.target.value)} style={inp}/>
+        <input placeholder="Description" value={pdesc} onChange={e=>setPdesc(e.target.value)} style={inp}/>
+        <button onClick={createProject} style={btn}>Create</button>
+
+        <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
+          {projects?.length ? projects.map(p=>(
+            <li key={p.id} style={{ display:'flex', gap:8, marginBottom:8 }}>
+              <button style={{ ...btn, flex:1, background:selected===p.id?'#2563eb':'#122338' }} onClick={()=>setSelected(p.id)}>{p.name}</button>
+              <button onClick={()=>deleteProject(p.id)} style={{...btn, background:'#7f1d1d'}}>ลบ</button>
+            </li>
+          )) : <div style={{ opacity:.7 }}>No projects.</div>}
+        </ul>
       </div>
 
-      {/* Center: Tasks & Files */}
+      {/* Center */}
       <div style={{ display:'grid', gap:16 }}>
         {/* Tasks */}
         <div style={card}>
           <h3 style={{ marginTop:0 }}>Tasks</h3>
-          {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
-          {selected && (
+          {!selected ? <div style={{ opacity:.7 }}>Select a project.</div> : (
             <>
               <div style={{ display:'flex', gap:8 }}>
-                <input placeholder="Task title" value={title} onChange={e=>setTitle(e.target.value)} style={{...inp, flex:1}} />
-                <input type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} style={inp} />
+                <input placeholder="Task title" value={title} onChange={e=>setTitle(e.target.value)} style={{...inp, flex:1}}/>
+                <input type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} style={inp}/>
                 <select value={statusNew} onChange={e=>setStatusNew(e.target.value)} style={inp}>
                   {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                 </select>
-                <button onClick={createTask} style={btn}>Add</button>
+                <button onClick={createTask} style={{...btn, opacity:!title.trim()?0.6:1}} disabled={!title.trim()}>Add</button>
               </div>
-
-              {msg && <div style={{ marginTop:8, fontSize:12, opacity:.8 }}>{msg}</div>}
-
               <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-                {tasks?.map(t=>(
+                {tasks.length ? tasks.map(t=>(
                   <li key={t.id} style={{ padding:8, border:'1px solid #1f2a3a', borderRadius:10, marginBottom:8 }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
                       <div>
                         <div style={{ fontWeight:600 }}>{t.title}</div>
-                        <div style={{ fontSize:12, opacity:.7 }}>
-                          สถานะ: {codeToLabel(t.status)} · กำหนดส่ง {t.deadline || '—'}
-                        </div>
+                        <div style={{ fontSize:12, opacity:.7 }}>สถานะ: {codeToLabel(t.status)} · กำหนดส่ง {t.deadline || '—'}</div>
                       </div>
-                      <select
-                        value={t.status ?? DEFAULT_STATUS_CODE}
-                        onChange={(e)=> changeTaskStatus(t, e.target.value)}
-                        disabled={savingId === t.id}
-                        style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1, cursor: savingId === t.id ? 'not-allowed' : 'pointer' }}
-                        title="Change status"
-                      >
-                        {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
-                      </select>
+                      <div style={{ display:'flex', gap:8 }}>
+                        <select value={t.status ?? DEFAULT_STATUS} onChange={(e)=>changeTaskStatus(t, e.target.value)} style={inp}>
+                          {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
+                        </select>
+                        <button onClick={()=>deleteTask(t.id)} style={{...btn, background:'#7f1d1d'}}>ลบ</button>
+                      </div>
                     </div>
                   </li>
-                )) || <div style={{ opacity:.7 }}>No tasks.</div>}
+                )) : <div style={{ opacity:.7 }}>No tasks.</div>}
               </ul>
             </>
           )}
@@ -193,22 +164,21 @@ export default function Page() {
         {/* Files */}
         <div style={card}>
           <h3 style={{ marginTop:0 }}>Files</h3>
-          {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
-          {selected && (
+          {!selected ? <div style={{ opacity:.7 }}>Select a project.</div> : (
             <>
               <div style={{ display:'flex', gap:8 }}>
-                <input type="file" ref={fileRef} style={{ flex:1 }} />
+                <input type="file" ref={fileRef} style={{ flex:1 }}/>
                 <button onClick={uploadFile} style={btn}>Upload</button>
               </div>
               <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-                {files?.map(f=>(
+                {files.length ? files.map(f=>(
                   <li key={f.id} style={{ padding:8, border:'1px solid #1f2a3a', borderRadius:10, marginBottom:8 }}>
-                    <a href={`${API}/uploads/${f.projectId}/${f.filename || ''}`} target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}>
-                      {f.originalname || 'file'}
+                    <a href={`${API}/uploads/${f.projectId}/${f.filename}`} target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}>
+                      {f.originalname}
                     </a>
                     <div style={{ fontSize:12, opacity:.7 }}>{(f.size/1024).toFixed(1)} KB</div>
                   </li>
-                )) || <div style={{ opacity:.7 }}>No files.</div>}
+                )) : <div style={{ opacity:.7 }}>No files.</div>}
               </ul>
             </>
           )}
@@ -218,8 +188,7 @@ export default function Page() {
       {/* Activity */}
       <div style={card}>
         <h3 style={{ marginTop:0 }}>Activity</h3>
-        {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
-        {selected && (
+        {!selected ? <div style={{ opacity:.7 }}>Select a project.</div> : (
           <ul style={{ listStyle:'none', padding:0 }}>
             {activity?.items?.map(a=>(
               <li key={a.id} style={{ padding:'6px 0', borderBottom:'1px solid #1f2a3a' }}>
