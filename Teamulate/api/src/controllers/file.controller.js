@@ -7,11 +7,11 @@ import fs from 'fs';
 const toFileJSON = (f) => ({
   id: f.id,
   projectId: f.projectId,
-  filename: f.filename ?? f.s3Key ?? '',
-  originalname: f.originalname ?? f.name ?? 'file',
-  mimetype: f.mimetype ?? f.mimeType ?? 'application/octet-stream',
-  size: f.size ?? 0,
-  createdAt: f.createdAt ?? f.uploadedAt ?? null,
+  filename: f.filename ?? f.s3Key,
+  originalname: f.originalname ?? f.name,
+  mimetype: f.mimetype ?? f.mimeType,
+  size: f.size,
+  createdAt: f.createdAt ?? f.uploadedAt,
 });
 
 export const FileController = {
@@ -29,14 +29,12 @@ export const FileController = {
         uploadedBy: 'system',
       });
 
-      // activity
-      const nameForLog = f.originalname ?? f.name ?? 'file';
       await ActivityModel.add({
         projectId,
         type: 'FILE_UPLOADED',
-        payload: { id: f.id, name: nameForLog },
+        payload: { id: f.id, name: f.originalname ?? f.name },
       });
-      emitActivity(projectId, { type: 'FILE_UPLOADED', payload: { id: f.id, name: nameForLog } });
+      emitActivity(projectId, { type: 'FILE_UPLOADED', payload: { id: f.id, name: f.originalname ?? f.name } });
 
       res.json(toFileJSON(f));
     } catch (e) {
@@ -61,27 +59,27 @@ export const FileController = {
       const f = await FileModel.findById(id);
       if (!f) return res.status(404).json({ error: 'not found' });
 
-      // ชื่อไฟล์บนดิสก์: รองรับทั้ง schema ใหม่/เก่า
+      // ✅ ต้องรวม projectId ด้วย เพราะไฟล์ถูกเก็บไว้ภายใต้โฟลเดอร์โปรเจกต์
       const diskName = f.filename ?? f.s3Key ?? null;
       if (diskName) {
         const fullPath = path.resolve('uploads', f.projectId, diskName);
         try {
           if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-        } catch {
-          console.warn('[File.remove] cannot unlink, continue');
+        } catch (err) {
+          console.warn('[File.remove] unlink warn:', err.message);
+          // ไม่ต้อง throw ปล่อยให้ลบใน DB ต่อได้
         }
       }
 
       await FileModel.deleteById(id);
 
-      // ส่ง Activity (เผื่ออยากแสดงในแถบ Activity)
-      const nameForLog = f.originalname ?? f.name ?? 'file';
+      // บันทึก activity และ broadcast
       await ActivityModel.add({
         projectId: f.projectId,
         type: 'FILE_DELETED',
-        payload: { id: f.id, name: nameForLog },
+        payload: { id: f.id, name: f.originalname ?? f.name },
       });
-      emitActivity(f.projectId, { type: 'FILE_DELETED', payload: { id: f.id, name: nameForLog } });
+      emitActivity(f.projectId, { type: 'FILE_DELETED', payload: { id: f.id, name: f.originalname ?? f.name } });
 
       res.json({ ok: true });
     } catch (e) {
