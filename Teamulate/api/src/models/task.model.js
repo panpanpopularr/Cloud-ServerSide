@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js';
+import prisma from '../lib/prisma.js';
 
 const SYSTEM_USER_EMAIL =
   process.env.SYSTEM_USER_EMAIL || 'system@teamulate.local';
@@ -6,8 +6,8 @@ const SYSTEM_USER_NAME = 'System';
 
 export const TaskModel = {
   create: async ({ projectId, title, description, deadline, status }) => {
-    // 1) schema ที่ต้องการ relation project + creator
     try {
+      // ✅ schema ปัจจุบัน (มี relation project + creator)
       return await prisma.task.create({
         data: {
           title,
@@ -17,7 +17,7 @@ export const TaskModel = {
           project: { connect: { id: projectId } },
           creator: {
             connectOrCreate: {
-              where: { email: SYSTEM_USER_EMAIL }, // ต้อง unique ใน model User
+              where: { email: SYSTEM_USER_EMAIL },
               create: { email: SYSTEM_USER_EMAIL, name: SYSTEM_USER_NAME },
             },
           },
@@ -25,8 +25,8 @@ export const TaskModel = {
       });
     } catch (e1) {
       console.warn('[TaskModel.create][try1 failed]', e1?.message);
-      // 2) บางสคีมาไม่บังคับ creator → ลองตัดออก
       try {
+        // ✅ schema ไม่มี creator
         return await prisma.task.create({
           data: {
             title,
@@ -38,7 +38,7 @@ export const TaskModel = {
         });
       } catch (e2) {
         console.warn('[TaskModel.create][try2 failed]', e2?.message);
-        // 3) สคีมาเก่า ใช้ projectId ตรง ๆ
+        // ✅ schema เก่า → ใช้ projectId โดยตรง
         return await prisma.task.create({
           data: {
             projectId,
@@ -64,8 +64,5 @@ export const TaskModel = {
       data: { status },
     }),
 
-  deleteById: (id) =>
-    prisma.task.delete({
-      where: { id },
-    }),
+  deleteById: (id) => prisma.task.delete({ where: { id } }),
 };

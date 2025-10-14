@@ -1,9 +1,9 @@
-import { prisma } from '../lib/prisma.js';
+import prisma from '../lib/prisma.js';
 
 export const FileModel = {
   create: async (meta) => {
     try {
-      // ✅ schema ใหม่
+      // สคีมาใหม่
       return await prisma.file.create({
         data: {
           projectId: meta.projectId,
@@ -11,11 +11,12 @@ export const FileModel = {
           originalname: meta.originalname,
           mimetype: meta.mimetype,
           size: meta.size,
+          // uploadedAt default(now())
         },
       });
     } catch (e1) {
       console.warn('[FileModel.create][fallback]', e1.message);
-      // ✅ fallback → schema เก่า ต้องมี uploadedBy
+      // สคีมาเก่า
       return await prisma.file.create({
         data: {
           projectId: meta.projectId,
@@ -30,6 +31,7 @@ export const FileModel = {
   },
 
   listSmart: async (projectId) => {
+    // รองรับชื่อคอลัมน์หลายยุค
     try {
       return await prisma.file.findMany({
         where: { projectId },
@@ -50,6 +52,19 @@ export const FileModel = {
     }
   },
 
-  findById: (id) => prisma.file.findUnique({ where: { id } }),
+  // ใช้ select ให้ได้ค่าที่ต้องใช้ลบไฟล์บนดิสก์ด้วย
+  findById: (id) =>
+    prisma.file.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        projectId: true,
+        filename: true,      // new
+        s3Key: true,         // legacy
+        originalname: true,  // new
+        name: true,          // legacy
+      },
+    }),
+
   deleteById: (id) => prisma.file.delete({ where: { id } }),
 };

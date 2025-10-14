@@ -1,23 +1,27 @@
-import { prisma } from '../lib/prisma.js';
+import prisma from '../lib/prisma.js';
+
+export async function list() {
+  return prisma.project.findMany({ orderBy: { createdAt: 'desc' } });
+}
+
+export async function create(name, description) {
+  return prisma.project.create({
+    data: { name, description: description ?? '' },
+  });
+}
+
+export async function remove(id) {
+  await prisma.$transaction([
+    prisma.file.deleteMany({ where: { projectId: id } }),
+    prisma.task.deleteMany({ where: { projectId: id } }),
+    prisma.activity.deleteMany({ where: { projectId: id } }),
+    prisma.project.delete({ where: { id } }),
+  ]);
+  return true;
+}
 
 export const ProjectModel = {
-  create: (data) => prisma.project.create({ data }),
-  list: () => prisma.project.findMany({ orderBy: { createdAt: 'desc' } }),
-
-  // ลบแบบ manual cascade และคืนรายการไฟล์ (ไว้ unlink บนดิสก์)
-  deleteCascade: async (id) => {
-    return prisma.$transaction(async (tx) => {
-      // ❗ ดึงทุกฟิลด์ ไม่ใช้ select ที่เจาะจง (กันชื่อคอลัมน์ต่างสคีมา)
-      const files = await tx.file.findMany({
-        where: { projectId: id },
-      });
-
-      await tx.activity.deleteMany({ where: { projectId: id } });
-      await tx.task.deleteMany({ where: { projectId: id } });
-      await tx.file.deleteMany({ where: { projectId: id } });
-
-      const proj = await tx.project.delete({ where: { id } });
-      return { proj, files };
-    });
-  },
+  list,
+  create: ({ name, description }) => create(name, description),
+  remove,
 };

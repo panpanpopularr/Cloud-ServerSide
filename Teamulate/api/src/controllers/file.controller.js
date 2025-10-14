@@ -7,11 +7,11 @@ import fs from 'fs';
 const toFileJSON = (f) => ({
   id: f.id,
   projectId: f.projectId,
-  filename: f.filename ?? f.s3Key,
-  originalname: f.originalname ?? f.name,
-  mimetype: f.mimetype ?? f.mimeType,
-  size: f.size,
-  createdAt: f.createdAt ?? f.uploadedAt,
+  filename: f.filename ?? f.s3Key ?? '',
+  originalname: f.originalname ?? f.name ?? 'file',
+  mimetype: f.mimetype ?? f.mimeType ?? 'application/octet-stream',
+  size: f.size ?? 0,
+  createdAt: f.createdAt ?? f.uploadedAt ?? null,
 });
 
 export const FileController = {
@@ -29,12 +29,14 @@ export const FileController = {
         uploadedBy: 'system',
       });
 
+      // activity
+      const nameForLog = f.originalname ?? f.name ?? 'file';
       await ActivityModel.add({
         projectId,
         type: 'FILE_UPLOADED',
-        payload: { id: f.id, name: f.originalname ?? f.name },
+        payload: { id: f.id, name: nameForLog },
       });
-      emitActivity(projectId, { type: 'FILE_UPLOADED', payload: { id: f.id } });
+      emitActivity(projectId, { type: 'FILE_UPLOADED', payload: { id: f.id, name: nameForLog } });
 
       res.json(toFileJSON(f));
     } catch (e) {
@@ -59,13 +61,28 @@ export const FileController = {
       const f = await FileModel.findById(id);
       if (!f) return res.status(404).json({ error: 'not found' });
 
-      try {
-        fs.unlinkSync(path.resolve('uploads', f.filename ?? f.s3Key));
-      } catch {
-        console.warn('[File.remove] local file not found, continue');
+      // ชื่อไฟล์บนดิสก์: รองรับทั้ง schema ใหม่/เก่า
+      const diskName = f.filename ?? f.s3Key ?? null;
+      if (diskName) {
+        const fullPath = path.resolve('uploads', f.projectId, diskName);
+        try {
+          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+        } catch {
+          console.warn('[File.remove] cannot unlink, continue');
+        }
       }
 
       await FileModel.deleteById(id);
+
+      // ส่ง Activity (เผื่ออยากแสดงในแถบ Activity)
+      const nameForLog = f.originalname ?? f.name ?? 'file';
+      await ActivityModel.add({
+        projectId: f.projectId,
+        type: 'FILE_DELETED',
+        payload: { id: f.id, name: nameForLog },
+      });
+      emitActivity(f.projectId, { type: 'FILE_DELETED', payload: { id: f.id, name: nameForLog } });
+
       res.json({ ok: true });
     } catch (e) {
       console.error('[File.remove]', e);
