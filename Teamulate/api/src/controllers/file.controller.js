@@ -7,11 +7,11 @@ import fs from 'fs';
 const toFileJSON = (f) => ({
   id: f.id,
   projectId: f.projectId,
-  filename: f.filename ?? f.s3Key,
-  originalname: f.originalname ?? f.name,
-  mimetype: f.mimetype ?? f.mimeType,
-  size: f.size,
-  createdAt: f.createdAt ?? f.uploadedAt,
+  filename: f.filename ?? f.s3Key ?? '',
+  originalname: f.originalname ?? f.name ?? 'file',
+  mimetype: f.mimetype ?? f.mimeType ?? 'application/octet-stream',
+  size: f.size ?? 0,
+  createdAt: f.createdAt ?? f.uploadedAt ?? null,
 });
 
 export const FileController = {
@@ -59,21 +59,22 @@ export const FileController = {
       const f = await FileModel.findById(id);
       if (!f) return res.status(404).json({ error: 'not found' });
 
-      // ✅ ต้องรวม projectId ด้วย เพราะไฟล์ถูกเก็บไว้ภายใต้โฟลเดอร์โปรเจกต์
+      // ชื่อไฟล์บนดิสก์ (รองรับ schema เก่า/ใหม่)
       const diskName = f.filename ?? f.s3Key ?? null;
       if (diskName) {
-        const fullPath = path.resolve('uploads', f.projectId, diskName);
+        // ✅ ต้องมีโฟลเดอร์ projectId ด้วย (เราอัปโหลดไว้เป็น uploads/<projectId>/<filename>)
+        const fullPath = path.resolve('uploads', String(f.projectId), String(diskName));
         try {
           if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
         } catch (err) {
+          // ไม่ให้ล้ม แม้ unlink จะพลาด
           console.warn('[File.remove] unlink warn:', err.message);
-          // ไม่ต้อง throw ปล่อยให้ลบใน DB ต่อได้
         }
       }
 
-      await FileModel.deleteById(id);
+      // ใช้ deleteMany เพื่อลดโอกาส Prisma โยน error P2025 หาก record ไม่มี
+      const { count } = await FileModel.deleteById(id);
 
-      // บันทึก activity และ broadcast
       await ActivityModel.add({
         projectId: f.projectId,
         type: 'FILE_DELETED',
@@ -81,7 +82,7 @@ export const FileController = {
       });
       emitActivity(f.projectId, { type: 'FILE_DELETED', payload: { id: f.id, name: f.originalname ?? f.name } });
 
-      res.json({ ok: true });
+      res.json({ ok: true, deleted: count });
     } catch (e) {
       console.error('[File.remove]', e);
       res.status(500).json({ error: 'delete failed' });
