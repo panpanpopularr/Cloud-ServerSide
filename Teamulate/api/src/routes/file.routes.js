@@ -6,11 +6,12 @@ import { FileController } from '../controllers/file.controller.js';
 
 const storage = multer.diskStorage({
   destination: (req, _file, cb) => {
+    // เก็บไฟล์ไว้ใต้ uploads/<projectId>
     const dir = path.resolve('uploads', req.params.projectId);
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
-  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 const uploadMW = multer({ storage });
 
