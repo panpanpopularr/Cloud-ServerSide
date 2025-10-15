@@ -1,44 +1,44 @@
-import prisma from '../lib/prisma.js';
 import bcrypt from 'bcryptjs';
+import prisma from '../lib/prisma.js';
+
+const SALT = 10;
 
 export const UserModel = {
-  findById: (id) => prisma.user.findUnique({ where: { id } }),
-  findByEmail: (email) => prisma.user.findUnique({ where: { email } }),
+  async findByEmail(email) {
+    return prisma.user.findUnique({ where: { email } });
+  },
 
-  createLocal: async ({ name, email, password }) => {
-    const hash = await bcrypt.hash(password, 10);
+  async createLocal({ name, email, password, role = 'USER' }) {
+    const hash = await bcrypt.hash(password, SALT);
     return prisma.user.create({
-      data: {
-        name: name ?? null,
-        email,
-        password: hash,
-        provider: 'local'
-      }
+      data: { name, email, password: hash, role },
+      select: { id: true, name: true, email: true, role: true, avatar: true, createdAt: true },
     });
   },
 
-  verifyLocal: async ({ email, password }) => {
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.password) return null;
-    const ok = await bcrypt.compare(password, user.password);
-    return ok ? user : null;
+  async verifyLocal(email, password) {
+    const u = await prisma.user.findUnique({ where: { email } });
+    if (!u || !u.password) return null;
+    const ok = await bcrypt.compare(password, u.password);
+    if (!ok) return null;
+    return { id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar, createdAt: u.createdAt };
   },
 
-  upsertFromGoogle: async ({ email, name, avatar }) => {
-    // ถ้ามีอยู่แล้ว อัปเดตชื่อ/ภาพ; ถ้าไม่มีก็สร้างใหม่
-    return prisma.user.upsert({
-      where: { email },
-      create: {
-        email,
-        name: name ?? null,
-        avatar: avatar ?? null,
-        provider: 'google'
+  async allUsers() {
+    return prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, email: true, name: true, role: true, avatar: true, createdAt: true },
+    });
+  },
+
+  async updateUser(id, { name, role }) {
+    return prisma.user.update({
+      where: { id },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(role !== undefined ? { role } : {}),
       },
-      update: {
-        name: name ?? undefined,
-        avatar: avatar ?? undefined,
-        provider: 'google'
-      }
+      select: { id: true, email: true, name: true, role: true, avatar: true, createdAt: true },
     });
   },
 };

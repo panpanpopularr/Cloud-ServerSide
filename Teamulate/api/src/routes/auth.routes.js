@@ -1,78 +1,99 @@
 import { Router } from 'express';
-import passport from '../lib/passport.js';
+import cookie from 'cookie';
+import prisma from '../lib/prisma.js';
 import { UserModel } from '../models/user.model.js';
+import { signUser, ensureAuth } from '../middlewares/auth.js';
 
 const router = Router();
 
-// ===== Local Register =====
+// REGISTER (local)
 router.post('/auth/register', async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: 'email & password required' });
+    if (!name?.trim() || !email?.trim() || !password?.trim()) {
+      return res.status(400).json({ error: 'bad_request' });
+    }
 
     const exist = await UserModel.findByEmail(email);
-    if (exist) return res.status(409).json({ error: 'email already used' });
+    if (exist) return res.status(409).json({ error: 'email_taken' });
 
-    const u = await UserModel.createLocal({ name, email, password });
-    req.login(u, (err) => {
-      if (err) return res.status(500).json({ error: 'login after register failed' });
-      res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar ?? null } });
+    const u = await UserModel.createLocal({
+      name: name.trim(),
+      email: email.trim(),
+      password: password.trim(),
+      role: 'USER',
     });
+
+    const token = signUser(u);
+    res.setHeader(
+      'Set-Cookie',
+      cookie.serialize('token', token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7,
+      })
+    );
+
+    res.json({ user: u });
   } catch (e) {
     console.error('[register]', e);
-    res.status(500).json({ error: 'register failed' });
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
-// ===== Local Login =====
+// LOGIN (local)
 router.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: 'email & password required' });
+    const u = await UserModel.verifyLocal(email, password);
+    if (!u) return res.status(401).json({ error: 'invalid_credentials' });
 
-    const u = await UserModel.verifyLocal({ email, password });
-    if (!u) return res.status(401).json({ error: 'invalid credential' });
+    const token = signUser(u);
+    res.setHeader(
+      'Set-Cookie',
+      cookie.serialize('token', token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 7,
+      })
+    );
 
-    req.login(u, (err) => {
-      if (err) return res.status(500).json({ error: 'login failed' });
-      res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar ?? null } });
-    });
+    res.json({ user: u });
   } catch (e) {
     console.error('[login]', e);
-    res.status(500).json({ error: 'login failed' });
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
-// ===== Logout =====
-router.post('/auth/logout', (req, res) => {
-  req.logout(() => {
-    req.session?.destroy?.(() => {});
-    res.clearCookie('connect.sid');
-    res.json({ ok: true });
-  });
+// LOGOUT
+router.post('/auth/logout', (_req, res) => {
+  res.setHeader(
+    'Set-Cookie',
+    cookie.serialize('token', '', {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 0,
+    })
+  );
+  res.json({ ok: true });
 });
 
-// ===== Me =====
-router.get('/auth/me', (req, res) => {
-  if (!req.user) return res.status(401).json({ user: null });
-  const u = req.user;
-  res.json({ user: { id: u.id, email: u.email, name: u.name, avatar: u.avatar ?? null } });
-});
-
-// ===== Google OAuth =====
-router.get('/auth/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
-
-router.get('/auth/google/callback',
-  passport.authenticate('google', {
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=oauth`,
-    session: true,
-  }),
-  (req, res) => {
-    // สำเร็จแล้ว redirect กลับเว็บ
-    res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:3000'}/workspace`);
+// ME (ดูข้อมูลตัวเอง)
+router.get('/auth/me', ensureAuth, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.uid },
+      select: { id: true, name: true, email: true, role: true, avatar: true, createdAt: true },
+    });
+    if (!user) return res.status(404).json({ error: 'not_found' });
+    res.json({ user });
+  } catch (e) {
+    console.error('[auth/me]', e);
+    res.status(500).json({ error: 'server_error' });
   }
-);
+});
 
 export default router;

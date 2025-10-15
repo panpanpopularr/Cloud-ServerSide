@@ -3,16 +3,7 @@
 import useSWR from 'swr';
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { apiGet } from '@/lib/api';
-import { useRouter } from 'next/navigation';
-
-const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
-
-const fetcher = async (url) => {
-  const r = await fetch(url, { cache: 'no-store', credentials: 'include' });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
-};
+import { API, apiGet, apiPost, apiPatch, apiDelete, swrFetcher } from '@/lib/api';
 
 const STATUS = [
   { code: 'ACTIVE',     label: 'กำลังทำ' },
@@ -23,117 +14,56 @@ const STATUS = [
 ];
 const DEFAULT_STATUS_CODE = 'UNASSIGNED';
 
-/* ---------- helpers for Activity formatting ---------- */
 function formatDateTime(ts) {
   const d = new Date(ts);
-  return {
-    time: d.toLocaleTimeString(),
-    date: d.toLocaleDateString(),
-  };
+  return { time: d.toLocaleTimeString(), date: d.toLocaleDateString() };
 }
 function renderActivity(a) {
   const { time, date } = formatDateTime(a.createdAt);
   const p = a.payload || {};
-
   switch (a.type) {
     case 'FILE_UPLOADED':
-      return (
-        <>
-          <div style={{ fontWeight: 600 }}>Upload file</div>
-          <div>ชื่อ: {p.name ?? '(unknown)'}</div>
-          <div>เวลา {time} วันที่ {date}</div>
-        </>
-      );
+      return (<><div style={{fontWeight:600}}>Upload file</div><div>ชื่อ: {p.name ?? '(unknown)'}</div><div>เวลา {time} วันที่ {date}</div></>);
     case 'FILE_DELETED':
-      return (
-        <>
-          <div style={{ fontWeight: 600 }}>Delete file</div>
-          <div>ชื่อ: {p.name ?? '(unknown)'}</div>
-          <div>เวลา {time} วันที่ {date}</div>
-        </>
-      );
+      return (<><div style={{fontWeight:600}}>Delete file</div><div>ชื่อ: {p.name ?? '(unknown)'}</div><div>เวลา {time} วันที่ {date}</div></>);
     case 'TASK_CREATED':
-      return (
-        <>
-          <div style={{ fontWeight: 600 }}>Create task</div>
-          <div>ชื่อ: {p.title ?? '(untitled)'}</div>
-          <div>เวลา {time} วันที่ {date}</div>
-        </>
-      );
+      return (<><div style={{fontWeight:600}}>Create task</div><div>ชื่อ: {p.title ?? '(untitled)'}</div><div>เวลา {time} วันที่ {date}</div></>);
     case 'PROJECT_CREATED':
-      return (
-        <>
-          <div style={{ fontWeight: 600 }}>Create project</div>
-          <div>ชื่อ: {p.name ?? '(no-name)'}</div>
-          <div>เวลา {time} วันที่ {date}</div>
-        </>
-      );
+      return (<><div style={{fontWeight:600}}>Create project</div><div>ชื่อ: {p.name ?? '(no-name)'}</div><div>เวลา {time} วันที่ {date}</div></>);
     default:
-      return (
-        <>
-          <div style={{ fontWeight: 600 }}>{a.type}</div>
-          <pre style={{ margin: 0, fontSize: 12, opacity: .85, whiteSpace: 'pre-wrap' }}>
-            {JSON.stringify(a.payload, null, 2)}
-          </pre>
-          <div style={{ fontSize: 11, opacity: .6 }}>{date} {time}</div>
-        </>
-      );
+      return (<><div style={{fontWeight:600}}>{a.type}</div><pre style={{margin:0,fontSize:12,opacity:.85,whiteSpace:'pre-wrap'}}>{JSON.stringify(a.payload,null,2)}</pre><div style={{fontSize:11,opacity:.6}}>{date} {time}</div></>);
   }
 }
 
-export default function WorkspacePage() {
-  const router = useRouter();
-  const [authReady, setAuthReady] = useState(false);
-  const [me, setMe] = useState(null);
-
-  // state ที่ไม่เกี่ยวกับ hooks order
+export default function Page() {
+  // Projects
+  const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
-  const [savingId, setSavingId] = useState(null);
-  const [msg, setMsg] = useState('');
-  const fileRef = useRef();
 
-  // ตรวจ session — ห้าม early return ก่อนเรียก hooks อื่น ๆ
-  useEffect(() => {
-    let alive = true;
-    apiGet('/auth/me')
-      .then(r => {
-        if (!alive) return;
-        if (!r.user) {
-          router.replace('/login');
-        } else {
-          setMe(r.user);
-          setAuthReady(true);
-        }
-      })
-      .catch(() => router.replace('/login'));
-    return ()=>{ alive = false; };
-  }, [router]);
-
-  // SWR hooks ต้องถูกเรียกทุกครั้ง → ใช้ key เป็น null ถ้ายังไม่พร้อม
-  const projectsKey = authReady ? `${API}/projects` : null;
-  const { data: projects, mutate: refetchProjects } = useSWR(projectsKey, fetcher);
-
-  const tasksKey = authReady && selected ? `${API}/projects/${selected}/tasks` : null;
-  const { data: tasksRaw, mutate: refetchTasks } = useSWR(tasksKey, fetcher);
+  // Tasks
+  const { data: tasksRaw, mutate: refetchTasks } =
+    useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, swrFetcher);
   const tasks = Array.isArray(tasksRaw) ? tasksRaw :
     (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
-  const filesKey = authReady && selected ? `${API}/projects/${selected}/files` : null;
-  const { data: files, mutate: refetchFiles } = useSWR(filesKey, fetcher);
+  // Files
+  const { data: files, mutate: refetchFiles } =
+    useSWR(() => selected ? `${API}/projects/${selected}/files` : null, swrFetcher);
+  const fileRef = useRef();
 
-  const activityKey = authReady && selected ? `${API}/projects/${selected}/activity` : null;
-  const { data: activity, mutate: refetchActivity } = useSWR(activityKey, fetcher);
+  // Activity
+  const { data: activity, mutate: refetchActivity } =
+    useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, swrFetcher);
+
+  const [savingId, setSavingId] = useState(null);
+  const [msg, setMsg] = useState('');
 
   // socket
   useEffect(() => {
-    if (!authReady || !selected) return;
-    const socket = io(API, {
-      path: '/socket.io',
-      transports: ['websocket'],
-      withCredentials: true,
-    });
+    if (!selected) return;
+    const socket = io(API, { path: '/socket.io', transports: ['websocket'], withCredentials: true });
     socket.emit('join', { projectId: selected });
     socket.on('activity:new', () => {
       refetchActivity();
@@ -141,39 +71,33 @@ export default function WorkspacePage() {
       refetchFiles();
     });
     return () => socket.disconnect();
-  }, [authReady, selected]); // eslint-disable-line
+  }, [selected]); // eslint-disable-line
 
-  // === actions ===
+  // actions
   const createProject = async () => {
     if (!pname.trim()) return;
-    const resp = await fetch(`${API}/projects`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      credentials: 'include',
-      body: JSON.stringify({ name: pname, description: pdesc })
-    });
-    if (!resp.ok) { alert('สร้างโปรเจ็กต์ไม่สำเร็จ'); return; }
-    const proj = await resp.json();
-    setPname(''); setPdesc('');
-    await refetchProjects(prev => [proj, ...(prev ?? [])], { revalidate: false });
-    setSelected(proj.id);
-    await refetchProjects();
+    try {
+      const proj = await apiPost('/projects', { name: pname, description: pdesc });
+      setPname(''); setPdesc('');
+      await refetchProjects(prev => [proj, ...(prev ?? [])], { revalidate: false });
+      setSelected(proj.id);
+      await refetchProjects();
+    } catch (e) {
+      alert('สร้างโปรเจ็กต์ไม่สำเร็จ: ' + (e.body?.error || e.message));
+    }
   };
 
   const deleteProject = async (id) => {
     if (!confirm('ยืนยันลบโปรเจกต์นี้? งาน ไฟล์ และกิจกรรมที่เกี่ยวข้องจะถูกลบถาวร')) return;
     const prev = projects ?? [];
     await refetchProjects(prev.filter(p => p.id !== id), { revalidate:false });
-
     try {
-      const resp = await fetch(`${API}/projects/${id}`, { method:'DELETE', credentials: 'include' });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      await apiDelete(`/projects/${id}`);
       if (selected === id) setSelected(null);
       await Promise.all([refetchProjects(), refetchTasks(), refetchFiles(), refetchActivity()]);
     } catch (e) {
-      console.error(e);
       await refetchProjects(prev, { revalidate:false });
-      alert('ลบโปรเจ็กต์ไม่สำเร็จ');
+      alert('ลบโปรเจ็กต์ไม่สำเร็จ: ' + (e.body?.error || e.message));
     }
   };
 
@@ -183,33 +107,25 @@ export default function WorkspacePage() {
     const deadline = document.getElementById('taskDeadline')?.value || '';
     const status = document.getElementById('taskStatus')?.value || DEFAULT_STATUS_CODE;
     if (!title) return;
-    const resp = await fetch(`${API}/projects/${selected}/tasks`, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      credentials: 'include',
-      body: JSON.stringify({ title, deadline, status })
-    });
-    if (!resp.ok) { alert('เพิ่มงานไม่สำเร็จ'); return; }
-    document.getElementById('taskTitle').value = '';
-    document.getElementById('taskDeadline').value = '';
-    await refetchTasks();
+    try {
+      await apiPost(`/projects/${selected}/tasks`, { title, deadline, status });
+      document.getElementById('taskTitle').value = '';
+      document.getElementById('taskDeadline').value = '';
+      await refetchTasks();
+    } catch (e) {
+      alert('เพิ่มงานไม่สำเร็จ: ' + (e.body?.error || e.message));
+    }
   };
 
   const changeTaskStatus = async (taskId, newCode) => {
     try {
       setSavingId(taskId);
-      const resp = await fetch(`${API}/tasks/${taskId}`, {
-        method:'PATCH',
-        headers:{'Content-Type':'application/json'},
-        credentials: 'include',
-        body: JSON.stringify({ status: newCode })
-      });
-      if (!resp.ok) throw new Error();
+      await apiPatch(`/tasks/${taskId}`, { status: newCode });
       await refetchTasks();
       setMsg(`อัปเดตสถานะเรียบร้อย`);
       setTimeout(() => setMsg(''), 1500);
-    } catch {
-      alert('อัปเดตสถานะไม่สำเร็จ');
+    } catch (e) {
+      alert('อัปเดตสถานะไม่สำเร็จ: ' + (e.body?.error || e.message));
     } finally {
       setSavingId(null);
     }
@@ -219,50 +135,35 @@ export default function WorkspacePage() {
     if (!selected || !fileRef.current?.files?.[0]) return;
     const fd = new FormData();
     fd.append('file', fileRef.current.files[0]);
-    const resp = await fetch(`${API}/projects/${selected}/files/upload`, { method:'POST', body: fd, credentials: 'include' });
-    if (!resp.ok) { alert('อัปโหลดไม่สำเร็จ'); return; }
-    fileRef.current.value = '';
-    await refetchFiles();
-    await refetchActivity();
+    try {
+      const res = await fetch(`${API}/projects/${selected}/files/upload`, {
+        method:'POST',
+        credentials: 'include',           // << สำคัญ
+        body: fd
+      });
+      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      fileRef.current.value = '';
+      await refetchFiles();
+      await refetchActivity();
+    } catch (e) {
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message);
+    }
   };
 
   const deleteFile = async (fileId) => {
     if (!confirm('ลบไฟล์นี้ใช่ไหม?')) return;
-    const resp = await fetch(`${API}/files/${fileId}`, { method: 'DELETE', credentials: 'include' });
-    if (!resp.ok) { alert('ลบไฟล์ไม่สำเร็จ'); return; }
-    await refetchFiles();
-    await refetchActivity();
+    try {
+      await apiDelete(`/files/${fileId}`);
+      await refetchFiles();
+      await refetchActivity();
+    } catch (e) {
+      alert('ลบไฟล์ไม่สำเร็จ: ' + (e.body?.error || e.message));
+    }
   };
 
-  // Loading (เรียก hooks ไปแล้ว แต่ข้อมูลยังไม่พร้อม)
-  if (!authReady) {
-    return (
-      <div style={{minHeight:'100vh', display:'grid', placeItems:'center', color:'#e6edf3'}}>
-        Loading…
-      </div>
-    );
-  }
-
-  // === UI ===
+  // UI (เดิม)
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 380px', gap:16, padding:16 }}>
-      {/* Top Bar */}
-      <div style={{ gridColumn:'1 / span 3', ...bar }}>
-        <div><b>Teamulate</b></div>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          {me?.avatar && <img src={me.avatar} alt="avatar" style={{ width:28, height:28, borderRadius:'50%' }} />}
-          <span>{me?.name || me?.email}</span>
-          <button
-            style={btn}
-            onClick={async ()=>{
-              await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
-              window.location.href = '/login';
-            }}>
-            Logout
-          </button>
-        </div>
-      </div>
-
+    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 380px', gap:16 }}>
       {/* Projects */}
       <div style={card}>
         <h3 style={{ marginTop:0 }}>Projects</h3>
@@ -277,12 +178,16 @@ export default function WorkspacePage() {
               <div style={{ display:'flex', gap:8 }}>
                 <button
                   style={{ ...btn, flex:1, background:selected===p.id?'#2563eb':'#122338' }}
-                  onClick={()=>setSelected(p.id)}>
+                  onClick={()=>setSelected(p.id)}
+                  title="เลือกโปรเจกต์"
+                >
                   {p.name}
                 </button>
                 <button
                   onClick={() => deleteProject(p.id)}
-                  style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>
+                  style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}
+                  title="ลบโปรเจกต์นี้"
+                >
                   ✕
                 </button>
               </div>
@@ -323,7 +228,8 @@ export default function WorkspacePage() {
                         value={t.status}
                         onChange={(e)=> changeTaskStatus(t.id, e.target.value)}
                         disabled={savingId === t.id}
-                        style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1 }}>
+                        style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1 }}
+                      >
                         {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                       </select>
                     </div>
@@ -350,7 +256,8 @@ export default function WorkspacePage() {
                     <div>
                       <a
                         href={`${API}/uploads/${f.projectId}/${f.filename || f.s3Key || ''}`}
-                        target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}>
+                        target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}
+                      >
                         {f.originalname || f.name || 'file'}
                       </a>
                       <div style={{ fontSize:12, opacity:.7 }}>{(f.size/1024).toFixed(1)} KB</div>
@@ -358,7 +265,8 @@ export default function WorkspacePage() {
                     <button
                       onClick={()=>deleteFile(f.id)}
                       title="Delete"
-                      style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>
+                      style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}
+                    >
                       🗑
                     </button>
                   </li>
@@ -387,7 +295,6 @@ export default function WorkspacePage() {
   );
 }
 
-const bar = { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'#0b1320', borderBottom:'1px solid #1e293b', color:'#fff' };
 const card = { padding:12, background:'#0f1720', border:'1px solid #1e293b', borderRadius:12 };
 const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };
 const inp  = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'8px 10px', borderRadius:8 };

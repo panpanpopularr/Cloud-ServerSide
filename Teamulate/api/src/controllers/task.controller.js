@@ -2,31 +2,47 @@ import { TaskModel } from '../models/task.model.js';
 import { ActivityModel } from '../models/activity.model.js';
 import { emitActivity } from '../lib/socket.js';
 
+const VALID_STATUS = new Set(['ACTIVE', 'UNASSIGNED', 'CANCELED', 'REVIEW', 'DONE']);
+
 export const TaskController = {
   create: async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { title, description, deadline, status } = req.body;
+      let { title, description, deadline, status } = req.body || {};
+
+      if (!title || !title.trim()) return res.status(400).json({ error: 'title required' });
+      title = title.trim();
+
+      // กันค่าที่ UI ส่งมาแปลก ๆ
+      if (!VALID_STATUS.has(status)) status = 'UNASSIGNED';
 
       const task = await TaskModel.create({
         projectId,
         title,
         description,
-        deadline: deadline ? new Date(deadline) : null,
+        deadline,
         status,
+        creatorId: req.user?.id || null,
       });
 
-      await ActivityModel.add({
-        projectId,
+      // log activity
+      try {
+        await ActivityModel.add({
+          projectId,
+          type: 'TASK_CREATED',
+          payload: { id: task.id, title: task.title },
+        });
+      } catch {}
+
+      emitActivity(projectId, {
         type: 'TASK_CREATED',
         payload: { id: task.id, title: task.title },
       });
-      emitActivity(projectId, { type: 'TASK_CREATED', payload: { id: task.id } });
 
       res.json(task);
     } catch (e) {
-      console.error('[Task.create]', e);
-      res.status(500).json({ error: 'create task failed' });
+      console.error('[Task.create]', e?.message, e?.cause || '');
+      res.status(500).json({ error: 'create task failed', detail: e?.message });
     }
   },
 
@@ -44,6 +60,7 @@ export const TaskController = {
     try {
       const { id } = req.params;
       const { status } = req.body;
+      if (!VALID_STATUS.has(status)) return res.status(400).json({ error: 'bad status' });
       const t = await TaskModel.updateStatus(id, status);
       res.json(t);
     } catch (e) {

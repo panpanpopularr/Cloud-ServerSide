@@ -1,25 +1,41 @@
 // web/lib/api.js
 export const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
 
-async function coreFetch(path, { method = 'GET', headers = {}, body, plain = false } = {}) {
-  const r = await fetch(`${API}${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', ...headers },
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include', // สำคัญ! เพื่อส่ง cookie ไป-กลับระหว่าง domain/port
-    cache: 'no-store',
+async function request(path, opts = {}) {
+  const res = await fetch(`${API}${path}`, {
+    // สำคัญที่สุด: ส่งคุ้กกี้ไปด้วยทุกครั้ง
+    credentials: 'include',
+    headers: {
+      ...(opts.body && { 'Content-Type': 'application/json' }),
+      ...(opts.headers || {}),
+    },
+    ...opts,
   });
-  if (!plain) {
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok) throw Object.assign(new Error(data?.error || `HTTP ${r.status}`), { status: r.status, data });
-    return data;
-  } else {
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return r;
+
+  // แปลงผลลัพธ์
+  const isJSON = res.headers.get('content-type')?.includes('application/json');
+  const data = isJSON ? await res.json().catch(() => ({})) : await res.text();
+
+  if (!res.ok) {
+    const msg = (data && data.error) || res.statusText || `HTTP ${res.status}`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.body = data;
+    throw err;
   }
+  return data;
 }
 
-export const apiGet  = (path)           => coreFetch(path);
-export const apiPost = (path, body)     => coreFetch(path, { method:'POST', body });
-export const apiPatch= (path, body)     => coreFetch(path, { method:'PATCH', body });
-export const apiDel  = (path)           => coreFetch(path, { method:'DELETE' });
+// ใช้งานทั่วไป
+export const apiGet    = (p)       => request(p, { method: 'GET' });
+export const apiPost   = (p, body) => request(p, { method: 'POST',  body: JSON.stringify(body ?? {}) });
+export const apiPatch  = (p, body) => request(p, { method: 'PATCH', body: JSON.stringify(body ?? {}) });
+export const apiDelete = (p)       => request(p, { method: 'DELETE' });
+
+// ใช้กับ SWR (ต้องส่งคุ้กกี้ด้วย)
+export const swrFetcher = (url) =>
+  fetch(url, { credentials: 'include', cache: 'no-store' })
+    .then(r => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    });
