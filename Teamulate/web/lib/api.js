@@ -1,41 +1,96 @@
 // web/lib/api.js
 export const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
 
-async function request(path, opts = {}) {
-  const res = await fetch(`${API}${path}`, {
-    // สำคัญที่สุด: ส่งคุ้กกี้ไปด้วยทุกครั้ง
-    credentials: 'include',
-    headers: {
-      ...(opts.body && { 'Content-Type': 'application/json' }),
-      ...(opts.headers || {}),
-    },
-    ...opts,
-  });
-
-  // แปลงผลลัพธ์
-  const isJSON = res.headers.get('content-type')?.includes('application/json');
-  const data = isJSON ? await res.json().catch(() => ({})) : await res.text();
-
+/** แปลง response -> json/text และแนบข้อความผิดพลาดใน e.body */
+async function handle(res) {
+  // 204 หรือไม่มีเนื้อหาเลย
+  const noContent = res.status === 204 || res.headers.get('content-length') === '0';
   if (!res.ok) {
-    const msg = (data && data.error) || res.statusText || `HTTP ${res.status}`;
-    const err = new Error(msg);
-    err.status = res.status;
-    err.body = data;
-    throw err;
+    let message = `HTTP ${res.status}`;
+    try {
+      if (!noContent) {
+        const j = await res.json();
+        if (j && typeof j === 'object' && j.error) message = j.error;
+        const e = new Error(message);
+        e.body = j;             // <- แนบ body ไว้ดูรายละเอียด
+        throw e;
+      }
+    } catch {
+      // ถ้า parse json ไม่ได้
+    }
+    const e = new Error(message);
+    e.body = { error: message };
+    throw e;
   }
-  return data;
+
+  if (noContent) return null;
+
+  const ctype = (res.headers.get('content-type') || '').toLowerCase();
+  if (ctype.includes('application/json')) return res.json();
+  return res.text();
 }
 
-// ใช้งานทั่วไป
-export const apiGet    = (p)       => request(p, { method: 'GET' });
-export const apiPost   = (p, body) => request(p, { method: 'POST',  body: JSON.stringify(body ?? {}) });
-export const apiPatch  = (p, body) => request(p, { method: 'PATCH', body: JSON.stringify(body ?? {}) });
-export const apiDelete = (p)       => request(p, { method: 'DELETE' });
+export function apiGet(path) {
+  return fetch(`${API}${path}`, {
+    method: 'GET',
+    credentials: 'include',
+  }).then(handle);
+}
 
-// ใช้กับ SWR (ต้องส่งคุ้กกี้ด้วย)
+export function apiPost(path, body) {
+  return fetch(`${API}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(handle);
+}
+
+export function apiPatch(path, body) {
+  return fetch(`${API}${path}`, {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(handle);
+}
+
+export function apiPut(path, body) {
+  return fetch(`${API}${path}`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(handle);
+}
+
+export function apiDelete(path) {
+  return fetch(`${API}${path}`, {
+    method: 'DELETE',
+    credentials: 'include',
+  }).then(handle);
+}
+
+/** ใช้กับ useSWR: useSWR(() => `${API}/...`, swrFetcher) */
 export const swrFetcher = (url) =>
-  fetch(url, { credentials: 'include', cache: 'no-store' })
-    .then(r => {
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json();
-    });
+  fetch(url, { credentials: 'include' }).then(handle);
+
+/** อัปโหลดไฟล์แบบ FormData (ถ้าต้องใช้) */
+export function apiUpload(path, formData) {
+  return fetch(`${API}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    body: formData, // อย่าตั้ง header Content-Type เอง ให้ browser ใส่ boundary ให้
+  }).then(handle);
+}
+
+export default {
+  API,
+  apiGet,
+  apiPost,
+  apiPatch,
+  apiPut,
+  apiDelete,
+  apiUpload,
+  swrFetcher,
+};

@@ -3,7 +3,7 @@
 import useSWR from 'swr';
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { API, apiGet, apiPost, apiPatch, apiDelete, swrFetcher } from '@/lib/api';
+import { API, apiPost, apiPatch, apiDelete } from '@/lib/api';
 
 const STATUS = [
   { code: 'ACTIVE',     label: 'กำลังทำ' },
@@ -13,6 +13,17 @@ const STATUS = [
   { code: 'DONE',       label: 'เสร็จแล้ว' },
 ];
 const DEFAULT_STATUS_CODE = 'UNASSIGNED';
+
+// fetcher ที่แนบคุกกี้เสมอ
+const swrFetcher = (url) =>
+  fetch(url, { credentials: 'include' }).then(async (r) => {
+    if (!r.ok) {
+      let msg = 'request failed';
+      try { const j = await r.json(); msg = j?.error || msg; } catch {}
+      throw new Error(msg);
+    }
+    return r.json();
+  });
 
 function formatDateTime(ts) {
   const d = new Date(ts);
@@ -40,21 +51,19 @@ export default function Page() {
   const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(null); // projectId
 
   // Tasks
-  const { data: tasksRaw, mutate: refetchTasks } =
+  const { data: tasks = [], mutate: refetchTasks } =
     useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, swrFetcher);
-  const tasks = Array.isArray(tasksRaw) ? tasksRaw :
-    (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
   // Files
-  const { data: files, mutate: refetchFiles } =
+  const { data: files = [], mutate: refetchFiles } =
     useSWR(() => selected ? `${API}/projects/${selected}/files` : null, swrFetcher);
   const fileRef = useRef();
 
   // Activity
-  const { data: activity, mutate: refetchActivity } =
+  const { data: activity = { items: [] }, mutate: refetchActivity } =
     useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, swrFetcher);
 
   const [savingId, setSavingId] = useState(null);
@@ -63,7 +72,11 @@ export default function Page() {
   // socket
   useEffect(() => {
     if (!selected) return;
-    const socket = io(API, { path: '/socket.io', transports: ['websocket'], withCredentials: true });
+    const socket = io(API, {
+      path: '/socket.io',
+      transports: ['websocket'],
+      withCredentials: true,
+    });
     socket.emit('join', { projectId: selected });
     socket.on('activity:new', () => {
       refetchActivity();
@@ -71,7 +84,7 @@ export default function Page() {
       refetchFiles();
     });
     return () => socket.disconnect();
-  }, [selected]); // eslint-disable-line
+  }, [selected, refetchActivity, refetchTasks, refetchFiles]);
 
   // actions
   const createProject = async () => {
@@ -79,25 +92,25 @@ export default function Page() {
     try {
       const proj = await apiPost('/projects', { name: pname, description: pdesc });
       setPname(''); setPdesc('');
-      await refetchProjects(prev => [proj, ...(prev ?? [])], { revalidate: false });
+      await refetchProjects();          // โหลดใหม่จากเซิร์ฟเวอร์
       setSelected(proj.id);
-      await refetchProjects();
     } catch (e) {
-      alert('สร้างโปรเจ็กต์ไม่สำเร็จ: ' + (e.body?.error || e.message));
+      alert('สร้างโปรเจ็กต์ไม่สำเร็จ: ' + (e.message || ''));
     }
   };
 
   const deleteProject = async (id) => {
     if (!confirm('ยืนยันลบโปรเจกต์นี้? งาน ไฟล์ และกิจกรรมที่เกี่ยวข้องจะถูกลบถาวร')) return;
     const prev = projects ?? [];
-    await refetchProjects(prev.filter(p => p.id !== id), { revalidate:false });
+    // optimistic update
+    await refetchProjects(prev.filter(p => p.id !== id), { revalidate: false });
     try {
       await apiDelete(`/projects/${id}`);
       if (selected === id) setSelected(null);
       await Promise.all([refetchProjects(), refetchTasks(), refetchFiles(), refetchActivity()]);
     } catch (e) {
       await refetchProjects(prev, { revalidate:false });
-      alert('ลบโปรเจ็กต์ไม่สำเร็จ: ' + (e.body?.error || e.message));
+      alert('ลบโปรเจ็กต์ไม่สำเร็จ: ' + (e.message || ''));
     }
   };
 
@@ -112,8 +125,9 @@ export default function Page() {
       document.getElementById('taskTitle').value = '';
       document.getElementById('taskDeadline').value = '';
       await refetchTasks();
+      await refetchActivity();
     } catch (e) {
-      alert('เพิ่มงานไม่สำเร็จ: ' + (e.body?.error || e.message));
+      alert('เพิ่มงานไม่สำเร็จ: ' + (e.message || ''));
     }
   };
 
@@ -125,7 +139,7 @@ export default function Page() {
       setMsg(`อัปเดตสถานะเรียบร้อย`);
       setTimeout(() => setMsg(''), 1500);
     } catch (e) {
-      alert('อัปเดตสถานะไม่สำเร็จ: ' + (e.body?.error || e.message));
+      alert('อัปเดตสถานะไม่สำเร็จ: ' + (e.message || ''));
     } finally {
       setSavingId(null);
     }
@@ -138,7 +152,7 @@ export default function Page() {
     try {
       const res = await fetch(`${API}/projects/${selected}/files/upload`, {
         method:'POST',
-        credentials: 'include',           // << สำคัญ
+        credentials: 'include',       // แนบคุกกี้
         body: fd
       });
       if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
@@ -146,7 +160,7 @@ export default function Page() {
       await refetchFiles();
       await refetchActivity();
     } catch (e) {
-      alert('อัปโหลดไม่สำเร็จ: ' + e.message);
+      alert('อัปโหลดไม่สำเร็จ: ' + (e.message || ''));
     }
   };
 
@@ -157,11 +171,11 @@ export default function Page() {
       await refetchFiles();
       await refetchActivity();
     } catch (e) {
-      alert('ลบไฟล์ไม่สำเร็จ: ' + (e.body?.error || e.message));
+      alert('ลบไฟล์ไม่สำเร็จ: ' + (e.message || ''));
     }
   };
 
-  // UI (เดิม)
+  // UI
   return (
     <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 380px', gap:16 }}>
       {/* Projects */}

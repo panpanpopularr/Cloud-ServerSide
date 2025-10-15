@@ -1,21 +1,25 @@
+// api/src/routes/task.routes.js
 import { Router } from 'express';
 import { TaskController } from '../controllers/task.controller.js';
+import { ensureAuth, ensureProjectAccess } from '../middlewares/ensureAuth.js';
 
 const router = Router();
 
-// list / create
-router.get('/projects/:projectId/tasks', TaskController.list);
-router.post('/projects/:projectId/tasks', TaskController.create);
+// ปล่อย preflight
+router.options('/projects/:projectId/tasks', (_req, res) => res.sendStatus(204));
+router.options('/tasks/:id', (_req, res) => res.sendStatus(204));
+router.options('/tasks/:id/status', (_req, res) => res.sendStatus(204));
+router.options('/tasks/:id/assignees', (_req, res) => res.sendStatus(204));
+router.options('/tasks/:id/comments', (_req, res) => res.sendStatus(204));
 
-// update (ครบฟิลด์) + route เดิมสำหรับอัปเดตสถานะอย่างเดียว
-router.patch('/tasks/:id', TaskController.update);         // ใหม่: อัปเดตได้หลายฟิลด์
-router.patch('/tasks/:id/status', TaskController.updateStatus); // เดิม: เฉพาะ status (เผื่อ client เก่ายังเรียก)
+// ป้องกันและจำกัดสิทธิ์
+router.get('/projects/:projectId/tasks', ensureAuth, ensureProjectAccess('projectId'), TaskController.list);
+router.post('/projects/:projectId/tasks', ensureAuth, ensureProjectAccess('projectId'), TaskController.create);
 
-// assignees + comments
-router.put('/tasks/:id/assignees', TaskController.setAssignees);
-router.post('/tasks/:id/comments', TaskController.comment);
-
-// delete
-router.delete('/tasks/:id', TaskController.remove);
+router.patch('/tasks/:id', ensureAuth, TaskController.update);
+router.patch('/tasks/:id/status', ensureAuth, TaskController.updateStatus);
+router.put('/tasks/:id/assignees', ensureAuth, TaskController.setAssignees);
+router.post('/tasks/:id/comments', ensureAuth, TaskController.comment);
+router.delete('/tasks/:id', ensureAuth, TaskController.remove);
 
 export default router;

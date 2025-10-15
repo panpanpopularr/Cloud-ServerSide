@@ -4,7 +4,6 @@ import { emitActivity } from '../lib/socket.js';
 import { normalizeStatus, DEFAULT_STATUS_CODE } from '../utils/status.js';
 
 export const TaskController = {
-  // สร้าง Task (เพิ่ม validation + default status + activity)
   create: async (req, res) => {
     try {
       const { projectId } = req.params;
@@ -13,20 +12,21 @@ export const TaskController = {
       if (!title?.trim()) {
         return res.status(400).json({ error: 'title required' });
       }
+
       const norm = normalizeStatus(status) ?? DEFAULT_STATUS_CODE;
 
       const task = await TaskModel.create({
         projectId,
         title: title.trim(),
         description: description ?? null,
-        deadline: deadline ? new Date(deadline) : null,
+        deadline: deadline || null,
         status: norm,
       });
 
       await ActivityModel.add({
         projectId,
         type: 'TASK_CREATED',
-        payload: { id: task.id, title: task.title, status: task.status, by: req.user?.id ?? 'system' },
+        payload: { id: task.id, title: task.title, status: task.status ?? norm, by: req.user?.id ?? 'system' },
       });
       emitActivity(projectId, { type: 'TASK_CREATED', payload: { id: task.id } });
 
@@ -37,7 +37,6 @@ export const TaskController = {
     }
   },
 
-  // list + filter: ?status=ACTIVE&q=keyword
   list: async (req, res) => {
     try {
       const { projectId } = req.params;
@@ -51,20 +50,17 @@ export const TaskController = {
     }
   },
 
-  // อัปเดตแบบ “หลายฟิลด์ได้” รวม status (จะสร้าง activity เฉพาะฟิลด์ที่เปลี่ยน)
   update: async (req, res) => {
     try {
       const { id } = req.params;
       const patch = {};
-      const changed = {};
-
-      if (req.body?.title !== undefined) { patch.title = String(req.body.title ?? '').trim(); changed.title = true; }
-      if (req.body?.description !== undefined) { patch.description = req.body.description ?? null; changed.description = true; }
-      if (req.body?.deadline !== undefined) { patch.deadline = req.body.deadline ? new Date(req.body.deadline) : null; changed.deadline = true; }
+      if (req.body?.title !== undefined) patch.title = String(req.body.title ?? '').trim();
+      if (req.body?.description !== undefined) patch.description = req.body.description ?? null;
+      if (req.body?.deadline !== undefined) patch.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
       if (req.body?.status !== undefined) {
         const norm = normalizeStatus(req.body.status);
         if (!norm) return res.status(400).json({ error: 'invalid status' });
-        patch.status = norm; changed.status = true;
+        patch.status = norm;
       }
 
       const before = await TaskModel.findById(id);
@@ -72,26 +68,13 @@ export const TaskController = {
 
       const after = await TaskModel.update(id, patch);
 
-      // log เฉพาะสิ่งที่เปลี่ยน
-      const payload = { taskId: id };
-      if (changed.status && before.status !== after.status) {
+      if (patch.status && before.status !== after.status) {
         await ActivityModel.add({
           projectId: after.projectId,
           type: 'TASK_STATUS_CHANGED',
           payload: { taskId: id, from: before.status, to: after.status, by: req.user?.id ?? 'system' },
         });
         emitActivity(after.projectId, { type: 'TASK_STATUS_CHANGED', payload: { taskId: id, to: after.status } });
-      }
-
-      const metaChanged = ['title','description','deadline'].some(k => changed[k]);
-      if (metaChanged) {
-        payload.changed = Object.keys(changed).filter(k => k !== 'status');
-        await ActivityModel.add({
-          projectId: after.projectId,
-          type: 'TASK_UPDATED',
-          payload: { ...payload, by: req.user?.id ?? 'system' },
-        });
-        emitActivity(after.projectId, { type: 'TASK_UPDATED', payload });
       }
 
       res.json(after);
@@ -101,7 +84,6 @@ export const TaskController = {
     }
   },
 
-  // (เดิม) อัปเดตสถานะอย่างเดียว — คงไว้เพื่อ backward compatibility
   updateStatus: async (req, res) => {
     try {
       const { id } = req.params;
@@ -127,31 +109,6 @@ export const TaskController = {
     }
   },
 
-  // คอมเมนต์ (เก็บผ่าน Activity เลย ไม่ต้องมีตาราง comment)
-  comment: async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { comment } = req.body || {};
-      if (!comment?.trim()) return res.status(400).json({ error: 'comment required' });
-
-      const task = await TaskModel.findById(id);
-      if (!task) return res.status(404).json({ error: 'not_found' });
-
-      await ActivityModel.add({
-        projectId: task.projectId,
-        type: 'TASK_COMMENTED',
-        payload: { taskId: id, text: comment.trim(), by: req.user?.id ?? 'system' },
-      });
-      emitActivity(task.projectId, { type: 'TASK_COMMENTED', payload: { taskId: id } });
-
-      res.json({ ok: true });
-    } catch (e) {
-      console.error('[Task.comment]', e);
-      res.status(500).json({ error: 'comment failed' });
-    }
-  },
-
-  // ตั้งค่า assignees ผู้รับผิดชอบ
   setAssignees: async (req, res) => {
     try {
       const { id } = req.params;
@@ -174,6 +131,29 @@ export const TaskController = {
     } catch (e) {
       console.error('[Task.setAssignees]', e);
       res.status(500).json({ error: 'assign failed' });
+    }
+  },
+
+  comment: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { comment } = req.body || {};
+      if (!comment?.trim()) return res.status(400).json({ error: 'comment required' });
+
+      const task = await TaskModel.findById(id);
+      if (!task) return res.status(404).json({ error: 'not_found' });
+
+      await ActivityModel.add({
+        projectId: task.projectId,
+        type: 'TASK_COMMENTED',
+        payload: { taskId: id, text: comment.trim(), by: req.user?.id ?? 'system' },
+      });
+      emitActivity(task.projectId, { type: 'TASK_COMMENTED', payload: { taskId: id } });
+
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[Task.comment]', e);
+      res.status(500).json({ error: 'comment failed' });
     }
   },
 
