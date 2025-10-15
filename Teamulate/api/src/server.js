@@ -27,21 +27,27 @@ const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 const PORT = process.env.PORT || 4000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_secret_change_me';
 
-// ✅ อนุญาตหลาย origin ผ่าน ENV (คั่นด้วย comma) หรือ fallback เป็น FRONTEND
-// ตัวอย่างตั้งค่า: CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://192.168.1.10:3000
+// ✅ อ่าน allowed origins จาก ENV คั่นด้วย comma (fallback = FRONTEND)
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || FRONTEND)
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
 
+// ✅ โหมด cross-site (เช่น FE/API คนละโดเมนผ่าน Cloudflare)
+const IS_CROSS_SITE =
+  process.env.CROSS_SITE === '1' ||
+  (FRONTEND.startsWith('https://') && !FRONTEND.includes('localhost'));
+
 const app = express();
 
+// ถ้าอยู่หลัง reverse proxy (เช่น cloudflared) ให้เชื่อ header proto เพื่อ set secure cookie ได้
+app.set('trust proxy', 1);
+
 // ===== CORS =====
-// ใช้ dynamic origin (ต้องคืนค่า origin เดิมเพื่อให้ cookie ติดได้)
 app.use(
   cors({
     origin(origin, cb) {
-      // กรณี same-origin/curl ที่ไม่มี origin ให้ผ่านได้
+      // no Origin -> อนุญาต (เช่น curl / same-origin)
       if (!origin) return cb(null, true);
       if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
       return cb(new Error(`CORS blocked: ${origin}`), false);
@@ -50,13 +56,13 @@ app.use(
   })
 );
 
-// preflight (กรณี lib บางตัวไม่เรียกผ่าน cors())
+// Preflight เผื่อบาง client ไม่ผ่าน cors() ข้างบน
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
-    res.setHeader('Access-Control-Allow-Origin', FRONTEND);
+    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || FRONTEND);
   }
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
@@ -79,9 +85,10 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      sameSite: 'lax',
-      secure: false,            // ใช้ true เมื่อรัน https
+      sameSite: IS_CROSS_SITE ? 'none' : 'lax',
+      secure: IS_CROSS_SITE, // ต้อง true ถ้า sameSite = 'none'
       maxAge: 1000 * 60 * 60 * 24 * 7,
+      path: '/',
     },
   })
 );
@@ -107,10 +114,11 @@ app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.url}`));
 
 // ===== start server =====
 const server = http.createServer(app);
-initSocket(server, { corsOrigin: ALLOWED_ORIGINS[0] || FRONTEND });
+initSocket(server, { corsOrigin: ALLOWED_ORIGINS });
 
 server.listen(PORT, async () => {
   await ensureAdminSeed();
   console.log(`🚀 API running on http://localhost:${PORT}`);
   console.log(`CORS allowed: ${ALLOWED_ORIGINS.join(', ')}`);
+  console.log(`Cross-site mode: ${IS_CROSS_SITE ? 'ON (SameSite=None; Secure)' : 'OFF (SameSite=Lax)'}`);
 });

@@ -6,7 +6,22 @@ import { UserModel } from '../models/user.model.js';
 import { signUser, ensureAuth } from '../middlewares/auth.js';
 
 const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
+const IS_CROSS_SITE =
+  process.env.CROSS_SITE === '1' ||
+  (FRONTEND.startsWith('https://') && !FRONTEND.includes('localhost'));
+
 const router = Router();
+
+// helper สำหรับตั้ง cookie ให้ถูกเมื่อ cross-site
+function cookieOpts() {
+  return {
+    httpOnly: true,
+    sameSite: IS_CROSS_SITE ? 'none' : 'lax',
+    secure: IS_CROSS_SITE,          // ต้อง true ถ้า sameSite='none'
+    path: '/',
+    maxAge: 60 * 60 * 24 * 7,
+  };
+}
 
 // ===== Local Register =====
 router.post('/auth/register', async (req, res) => {
@@ -26,9 +41,7 @@ router.post('/auth/register', async (req, res) => {
     });
 
     const token = signUser(u);
-    res.setHeader('Set-Cookie', cookie.serialize('token', token, {
-      httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
-    }));
+    res.setHeader('Set-Cookie', cookie.serialize('token', token, cookieOpts()));
     res.json({ user: u });
   } catch (e) {
     console.error('[register]', e);
@@ -44,9 +57,7 @@ router.post('/auth/login', async (req, res) => {
     if (!u) return res.status(401).json({ error: 'invalid_credentials' });
 
     const token = signUser(u);
-    res.setHeader('Set-Cookie', cookie.serialize('token', token, {
-      httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
-    }));
+    res.setHeader('Set-Cookie', cookie.serialize('token', token, cookieOpts()));
     res.json({ user: u });
   } catch (e) {
     console.error('[login]', e);
@@ -56,16 +67,16 @@ router.post('/auth/login', async (req, res) => {
 
 // ===== Logout =====
 router.post('/auth/logout', (_req, res) => {
-  res.setHeader('Set-Cookie', cookie.serialize('token', '', {
-    httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0,
-  }));
+  res.setHeader(
+    'Set-Cookie',
+    cookie.serialize('token', '', { ...cookieOpts(), maxAge: 0 })
+  );
   res.json({ ok: true });
 });
 
 // ===== Me =====
 router.get('/auth/me', ensureAuth, async (req, res) => {
   try {
-    // req.user ถูกแนบจาก JWT middleware แล้ว (uid, role, ...)
     res.json({
       user: {
         id: req.user.uid || req.user.id,
@@ -81,20 +92,21 @@ router.get('/auth/me', ensureAuth, async (req, res) => {
 });
 
 // ===== Google OAuth =====
-router.get('/auth/google',
+router.get(
+  '/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'], session: false })
 );
 
 router.get(
   '/auth/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: `${FRONTEND}/login?error=google` }),
+  passport.authenticate('google', {
+    session: false,
+    failureRedirect: `${FRONTEND}/login?error=google`,
+  }),
   (req, res) => {
-    // set JWT cookie then redirect back to FE
     const token = signUser(req.user);
-    res.setHeader('Set-Cookie', cookie.serialize('token', token, {
-      httpOnly: true, sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 * 7,
-    }));
-    // กลับหน้าแรกหรือหน้า login (แล้วแต่คุณ)
+    res.setHeader('Set-Cookie', cookie.serialize('token', token, cookieOpts()));
+    // กลับหน้า FE (จะใช้ token จาก cookie ต่อ)
     res.redirect(FRONTEND);
   }
 );
