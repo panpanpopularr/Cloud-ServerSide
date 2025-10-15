@@ -13,6 +13,7 @@ import './lib/passport.js';
 import authRoutes from './routes/auth.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import projectRoutes from './routes/project.routes.js';
+import userRoutes from './routes/user.routes.js';
 import taskRoutes from './routes/task.routes.js';
 import fileRoutes from './routes/file.routes.js';
 import activityRoutes from './routes/activity.routes.js';
@@ -108,6 +109,7 @@ app.use(taskRoutes);
 app.use(fileRoutes);
 app.use(activityRoutes);
 app.use(memberRoutes);
+app.use(userRoutes);
 
 // ===== 404 =====
 app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.url}`));
