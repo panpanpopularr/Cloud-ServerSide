@@ -1,96 +1,89 @@
 // web/lib/api.js
-export const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
+export const API = process.env.NEXT_PUBLIC_API ?? 'http://localhost:4000';
 
-/** แปลง response -> json/text และแนบข้อความผิดพลาดใน e.body */
+// ---- ช่วย parse response + โยน error ให้เข้าใจง่าย ----
 async function handle(res) {
-  // 204 หรือไม่มีเนื้อหาเลย
-  const noContent = res.status === 204 || res.headers.get('content-length') === '0';
   if (!res.ok) {
-    let message = `HTTP ${res.status}`;
+    let msg = `HTTP ${res.status}`;
     try {
-      if (!noContent) {
-        const j = await res.json();
-        if (j && typeof j === 'object' && j.error) message = j.error;
-        const e = new Error(message);
-        e.body = j;             // <- แนบ body ไว้ดูรายละเอียด
-        throw e;
-      }
+      const j = await res.json();
+      if (j?.error) msg = j.error;
     } catch {
-      // ถ้า parse json ไม่ได้
+      /* ignore parse error */
     }
-    const e = new Error(message);
-    e.body = { error: message };
-    throw e;
+    throw new Error(msg);
   }
-
-  if (noContent) return null;
-
-  const ctype = (res.headers.get('content-type') || '').toLowerCase();
+  const ctype = res.headers.get('content-type') || '';
   if (ctype.includes('application/json')) return res.json();
   return res.text();
 }
 
-export function apiGet(path) {
+// ---- fetcher สำหรับ SWR (มี credentials เสมอ) ----
+export const swrFetcher = (url) =>
+  fetch(url, { credentials: 'include' }).then(async (r) => {
+    if (!r.ok) {
+      let msg = `HTTP ${r.status}`;
+      try {
+        const j = await r.json();
+        if (j?.error) msg = j.error;
+      } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return r.json();
+  });
+
+// ---- helpers มาตรฐาน (มี credentials เสมอ) ----
+export function apiGet(path, init = {}) {
   return fetch(`${API}${path}`, {
     method: 'GET',
     credentials: 'include',
+    ...init,
   }).then(handle);
 }
 
-export function apiPost(path, body) {
+export function apiPost(path, body, init = {}) {
   return fetch(`${API}${path}`, {
     method: 'POST',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+    body: JSON.stringify(body ?? {}),
+    ...init,
   }).then(handle);
 }
 
-export function apiPatch(path, body) {
+export function apiPatch(path, body, init = {}) {
   return fetch(`${API}${path}`, {
     method: 'PATCH',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+    body: JSON.stringify(body ?? {}),
+    ...init,
   }).then(handle);
 }
 
-export function apiPut(path, body) {
+export function apiPut(path, body, init = {}) {
   return fetch(`${API}${path}`, {
     method: 'PUT',
     credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+    body: JSON.stringify(body ?? {}),
+    ...init,
   }).then(handle);
 }
 
-export function apiDelete(path) {
+export function apiDelete(path, init = {}) {
   return fetch(`${API}${path}`, {
     method: 'DELETE',
     credentials: 'include',
+    ...init,
   }).then(handle);
 }
-
-/** ใช้กับ useSWR: useSWR(() => `${API}/...`, swrFetcher) */
-export const swrFetcher = (url) =>
-  fetch(url, { credentials: 'include' }).then(handle);
-
-/** อัปโหลดไฟล์แบบ FormData (ถ้าต้องใช้) */
-export function apiUpload(path, formData) {
-  return fetch(`${API}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    body: formData, // อย่าตั้ง header Content-Type เอง ให้ browser ใส่ boundary ให้
-  }).then(handle);
-}
-
-export default {
-  API,
-  apiGet,
-  apiPost,
-  apiPatch,
-  apiPut,
-  apiDelete,
-  apiUpload,
-  swrFetcher,
-};

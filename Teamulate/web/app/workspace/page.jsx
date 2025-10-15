@@ -3,7 +3,7 @@
 import useSWR from 'swr';
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { API, apiPost, apiPatch, apiDelete } from '@/lib/api';
+import { API, apiGet, apiPost, apiPatch, apiDelete, swrFetcher } from '@/lib/api';
 
 const STATUS = [
   { code: 'ACTIVE',     label: 'กำลังทำ' },
