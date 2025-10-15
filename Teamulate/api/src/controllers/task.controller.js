@@ -1,3 +1,4 @@
+// api/src/controllers/task.controller.js
 import { TaskModel } from '../models/task.model.js';
 import { ActivityModel } from '../models/activity.model.js';
 import { emitActivity } from '../lib/socket.js';
@@ -7,7 +8,7 @@ export const TaskController = {
   create: async (req, res) => {
     try {
       const { projectId } = req.params;
-      let { title, description, deadline, status } = req.body || {};
+      let { title, deadline, status } = req.body || {};
 
       if (!title?.trim()) {
         return res.status(400).json({ error: 'title required' });
@@ -18,9 +19,10 @@ export const TaskController = {
       const task = await TaskModel.create({
         projectId,
         title: title.trim(),
-        description: description ?? null,
         deadline: deadline || null,
-        status: norm,
+        // ไม่ส่ง description เพราะ DB ไม่มีคอลัมน์นี้
+        // จะส่ง status หรือปล่อยให้ DB ใช้ default ก็ได้
+        status: norm, // หรือคอมเมนต์บรรทัดนี้ทิ้งถ้าอยากให้ DB ใส่ default เอง
       });
 
       await ActivityModel.add({
@@ -55,7 +57,6 @@ export const TaskController = {
       const { id } = req.params;
       const patch = {};
       if (req.body?.title !== undefined) patch.title = String(req.body.title ?? '').trim();
-      if (req.body?.description !== undefined) patch.description = req.body.description ?? null;
       if (req.body?.deadline !== undefined) patch.deadline = req.body.deadline ? new Date(req.body.deadline) : null;
       if (req.body?.status !== undefined) {
         const norm = normalizeStatus(req.body.status);

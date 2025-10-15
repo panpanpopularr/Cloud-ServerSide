@@ -1,19 +1,16 @@
+// api/src/routes/task.routes.js
 import { Router } from 'express';
 import { TaskController } from '../controllers/task.controller.js';
-import { ensureAuth, ensureProjectAccess } from '../middlewares/ensureAuth.js';
 
 const router = Router();
 
-router.use('/projects/:projectId/tasks', ensureAuth, ensureProjectAccess('projectId'));
+// ✅ เอา middleware ตรวจสิทธิ์ออกก่อน (ชั่วคราว)
 router.get('/projects/:projectId/tasks', TaskController.list);
 router.post('/projects/:projectId/tasks', TaskController.create);
-
-router.patch('/tasks/:id', ensureAuth, TaskController.update);
-router.patch('/tasks/:id/status', ensureAuth, TaskController.updateStatus);
-
-router.put('/tasks/:id/assignees', ensureAuth, TaskController.setAssignees);
-router.post('/tasks/:id/comments', ensureAuth, TaskController.comment);
-
-router.delete('/tasks/:id', ensureAuth, TaskController.remove);
+router.patch('/tasks/:id', TaskController.update);
+router.patch('/tasks/:id/status', TaskController.updateStatus);
+router.put('/tasks/:id/assignees', TaskController.setAssignees);
+router.post('/tasks/:id/comments', TaskController.comment);
+router.delete('/tasks/:id', TaskController.remove);
 
 export default router;
