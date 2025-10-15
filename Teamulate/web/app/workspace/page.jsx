@@ -269,7 +269,7 @@ export default function Page() {
             <h4 style={{ margin:'16px 0 8px' }}>Members</h4>
 
             {/* เชิญสมาชิก: เฉพาะเจ้าของโปรเจกต์/แอดมิน */}
-            {(isOwner || isAdmin) ? (
+            {(isOwner) ? (
               <div style={{ display:'flex', gap:8 }}>
                 <input
                   placeholder="เชิญด้วย userId"
@@ -290,7 +290,7 @@ export default function Page() {
                 const uid = m.user?.id || m.userId;
                 const uname = m.user?.name || '(no name)';
                 const uemail = m.user?.email || '';
-                const removable = (isOwner || isAdmin) && uid !== ownerId; // กันไม่ให้ลบเจ้าของเอง
+                const removable = (isOwner) && uid !== ownerId; // กันไม่ให้ลบเจ้าของเอง
                 return (
                   <li
                     key={uid || '(no id)'}
