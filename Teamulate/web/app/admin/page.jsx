@@ -10,6 +10,11 @@ import { API, swrFetcher, apiPatch, apiDelete } from '@/lib/api';
 export default function AdminPage() {
   const router = useRouter();
 
+    const onLogout = async () => {
+    try { await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'include' }); } catch {}
+    router.replace('/login');
+  };
+
   // 1) โหลดข้อมูลตัวเองเสมอ (อย่ามี if ครอบ hook)
   const { data: meResp } = useSWR(`${API}/auth/me`, swrFetcher, {
     shouldRetryOnError: false,
@@ -68,6 +73,7 @@ export default function AdminPage() {
     <div style={wrap}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center', marginBottom:16}}>
         <h2 style={{margin:0}}>Admin · Users</h2>
+        <button onClick={onLogout} style={btn}>Logout</button>
       </div>
 
       <table style={table}>
@@ -126,3 +132,4 @@ const tdMono = { ...td, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco,
 const inp = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'6px 8px', borderRadius:6 };
 const btnLink = { padding:'8px 12px', border:'1px solid #294766', borderRadius:8, textDecoration:'none', color:'#e6edf3', background:'#1f3a5f' };
 const btnDanger = { padding:'6px 10px', border:'1px solid #b91c1c', borderRadius:8, color:'#fee2e2', background:'#7f1d1d' };
+const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };

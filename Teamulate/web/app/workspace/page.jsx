@@ -27,36 +27,19 @@ function formatDateTime(ts) {
 export default function Page() {
   const router = useRouter();
 
-  // -------- me (ใช้เป็น guard) --------
+  // me (ใช้โชว์ชื่อ/ไอดี)
   const { data: meResp, isLoading: meLoading } = useSWR(`${API}/auth/me`, swrFetcher);
   const me = meResp?.user || meResp;
-  const isAdmin = (me?.role || '').toString().toUpperCase() === 'ADMIN';
 
-  // ถ้าเป็น ADMIN => รีไดเรกต์ออกจากหน้า workspace
-  useEffect(() => {
-    if (!meLoading && isAdmin) router.replace('/admin');
-  }, [meLoading, isAdmin, router]);
-
-  // ให้หน้าไม่ฟลิกระหว่างรอเช็คสิทธิ์/ระหว่างรีไดเรกต์
-  if (meLoading || isAdmin) {
-    return (
-      <div style={{ padding: 16 }}>
-        {meLoading ? 'Loading…' : 'Redirecting to Admin…'}
-      </div>
-    );
-  }
-
-  // -------- projects / selected --------
-  const { data: projects, mutate: refetchProjects } =
-    useSWR(() => (isAdmin ? null : `${API}/projects`), swrFetcher);
-
+  // projects / state
+  const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
 
   // project detail (หา ownerId)
   const { data: selectedProject } = useSWR(
-    () => (!isAdmin && selected ? `${API}/projects/${selected}` : null),
+    () => (selected ? `${API}/projects/${selected}` : null),
     swrFetcher
   );
   const ownerId =
@@ -65,29 +48,29 @@ export default function Page() {
     null;
   const isOwner = me?.id && ownerId && me.id === ownerId;
 
-  // -------- tasks / files / activity / members (เรียกเฉพาะไม่ใช่ admin) --------
+  // tasks / files / activity / members
   const { data: tasksRaw, mutate: refetchTasks } =
-    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/tasks` : null), swrFetcher);
+    useSWR(() => (selected ? `${API}/projects/${selected}/tasks` : null), swrFetcher);
   const tasks = Array.isArray(tasksRaw) ? tasksRaw :
     (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
   const { data: files, mutate: refetchFiles } =
-    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/files` : null), swrFetcher);
+    useSWR(() => (selected ? `${API}/projects/${selected}/files` : null), swrFetcher);
 
   const { data: activity, mutate: refetchActivity } =
-    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/activity` : null), swrFetcher);
+    useSWR(() => (selected ? `${API}/projects/${selected}/activity` : null), swrFetcher);
 
   const { data: members, mutate: refetchMembers } =
-    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/members` : null), swrFetcher);
+    useSWR(() => (selected ? `${API}/projects/${selected}/members` : null), swrFetcher);
 
   const fileRef = useRef();
   const [inviteText, setInviteText] = useState('');
   const [savingId, setSavingId] = useState(null);
   const [msg, setMsg] = useState('');
 
-  // socket (เฉพาะไม่ใช่ admin)
+  // socket
   useEffect(() => {
-    if (isAdmin || !selected) return;
+    if (!selected) return;
     const socket = io(API, { path: '/socket.io', transports: ['websocket'], withCredentials: true });
     socket.emit('join', { projectId: selected });
     socket.on('activity:new', () => {
@@ -104,7 +87,7 @@ export default function Page() {
     return t?.title || id;
   };
 
-  // -------- Activity renderer --------
+  // Activity renderer
   const renderActivity = (a) => {
     const { time, date } = formatDateTime(a.createdAt);
     const p = a.payload || {};
@@ -156,7 +139,7 @@ export default function Page() {
     </Row>;
   };
 
-  // -------- actions --------
+  // actions
   const createProject = async () => {
     if (!pname.trim()) return;
     try {
@@ -263,6 +246,8 @@ export default function Page() {
     router.replace('/login');
   };
 
+  if (meLoading) return <div style={{ padding: 16 }}>Loading…</div>;
+
   return (
     <div style={{ display:'grid', gridTemplateColumns:'340px 1fr 380px', gap:16 }}>
       {/* Header */}
@@ -302,7 +287,6 @@ export default function Page() {
           )) || <div style={{ opacity:.7 }}>No projects.</div>}
         </ul>
 
-        {/* Members */}
         {selected && (
           <div style={{ marginTop:16 }}>
             <h4 style={{ margin:'16px 0 8px' }}>Members</h4>
@@ -381,7 +365,6 @@ export default function Page() {
                       </div>
 
                       <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-                        {/* มอบหมายงาน: เฉพาะ owner */}
                         {isOwner && (
                           <select
                             value={t.assigneeId || ''}
@@ -439,7 +422,7 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Activity (เลื่อนแยก) */}
+      {/* Activity */}
       <div style={{ ...card, maxHeight: 'calc(100vh - 140px)' }}>
         <h3 style={{ marginTop:0 }}>Activity</h3>
         {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
