@@ -27,20 +27,36 @@ function formatDateTime(ts) {
 export default function Page() {
   const router = useRouter();
 
-  // me
-  const { data: meResp } = useSWR(`${API}/auth/me`, swrFetcher);
+  // -------- me (ใช้เป็น guard) --------
+  const { data: meResp, isLoading: meLoading } = useSWR(`${API}/auth/me`, swrFetcher);
   const me = meResp?.user || meResp;
   const isAdmin = (me?.role || '').toString().toUpperCase() === 'ADMIN';
 
-  // projects
-  const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
+  // ถ้าเป็น ADMIN => รีไดเรกต์ออกจากหน้า workspace
+  useEffect(() => {
+    if (!meLoading && isAdmin) router.replace('/admin');
+  }, [meLoading, isAdmin, router]);
+
+  // ให้หน้าไม่ฟลิกระหว่างรอเช็คสิทธิ์/ระหว่างรีไดเรกต์
+  if (meLoading || isAdmin) {
+    return (
+      <div style={{ padding: 16 }}>
+        {meLoading ? 'Loading…' : 'Redirecting to Admin…'}
+      </div>
+    );
+  }
+
+  // -------- projects / selected --------
+  const { data: projects, mutate: refetchProjects } =
+    useSWR(() => (isAdmin ? null : `${API}/projects`), swrFetcher);
+
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
 
   // project detail (หา ownerId)
   const { data: selectedProject } = useSWR(
-    () => (selected ? `${API}/projects/${selected}` : null),
+    () => (!isAdmin && selected ? `${API}/projects/${selected}` : null),
     swrFetcher
   );
   const ownerId =
@@ -49,32 +65,29 @@ export default function Page() {
     null;
   const isOwner = me?.id && ownerId && me.id === ownerId;
 
-  // tasks
+  // -------- tasks / files / activity / members (เรียกเฉพาะไม่ใช่ admin) --------
   const { data: tasksRaw, mutate: refetchTasks } =
-    useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, swrFetcher);
+    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/tasks` : null), swrFetcher);
   const tasks = Array.isArray(tasksRaw) ? tasksRaw :
     (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
-  // files
   const { data: files, mutate: refetchFiles } =
-    useSWR(() => selected ? `${API}/projects/${selected}/files` : null, swrFetcher);
-  const fileRef = useRef();
+    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/files` : null), swrFetcher);
 
-  // activity
   const { data: activity, mutate: refetchActivity } =
-    useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, swrFetcher);
+    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/activity` : null), swrFetcher);
 
-  // members
   const { data: members, mutate: refetchMembers } =
-    useSWR(() => selected ? `${API}/projects/${selected}/members` : null, swrFetcher);
-  const [inviteText, setInviteText] = useState('');
+    useSWR(() => (!isAdmin && selected ? `${API}/projects/${selected}/members` : null), swrFetcher);
 
+  const fileRef = useRef();
+  const [inviteText, setInviteText] = useState('');
   const [savingId, setSavingId] = useState(null);
   const [msg, setMsg] = useState('');
 
-  // socket
+  // socket (เฉพาะไม่ใช่ admin)
   useEffect(() => {
-    if (!selected) return;
+    if (isAdmin || !selected) return;
     const socket = io(API, { path: '/socket.io', transports: ['websocket'], withCredentials: true });
     socket.emit('join', { projectId: selected });
     socket.on('activity:new', () => {
@@ -91,7 +104,7 @@ export default function Page() {
     return t?.title || id;
   };
 
-  // -------- Activity renderer (เวอร์ชันอ่านง่ายเหมือนเดิม) --------
+  // -------- Activity renderer --------
   const renderActivity = (a) => {
     const { time, date } = formatDateTime(a.createdAt);
     const p = a.payload || {};
@@ -253,11 +266,9 @@ export default function Page() {
   return (
     <div style={{ display:'grid', gridTemplateColumns:'340px 1fr 380px', gap:16 }}>
       {/* Header */}
-      
       <div style={{ gridColumn:'1 / -1', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div style={{ fontWeight:600 }}>Teamulate</div>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          {isAdmin && <Link href="/admin" style={{ ...btn, textDecoration:'none' }}>Admin</Link>}
           <span style={{ opacity:.8 }}>{me ? `${me.name || 'User'} · ${me.id}` : '—'}</span>
           <Link href="/profile" style={{ ...btn, textDecoration:'none' }}>Profile</Link>
           <button onClick={onLogout} style={btn}>Logout</button>
@@ -283,7 +294,7 @@ export default function Page() {
                 >
                   {p.name}
                 </button>
-                {(me?.id === p.ownerId || isAdmin) && (
+                {(me?.id === p.ownerId) && (
                   <button onClick={() => deleteProject(p.id)} style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>✕</button>
                 )}
               </div>

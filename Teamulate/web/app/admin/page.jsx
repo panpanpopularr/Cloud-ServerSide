@@ -68,9 +68,6 @@ export default function AdminPage() {
     <div style={wrap}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center', marginBottom:16}}>
         <h2 style={{margin:0}}>Admin · Users</h2>
-        <div style={{display:'flex',gap:8}}>
-          <Link href="/workspace" style={btnLink}>← กลับ Workspace</Link>
-        </div>
       </div>
 
       <table style={table}>
