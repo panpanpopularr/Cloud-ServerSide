@@ -1,51 +1,80 @@
-// api/src/routes/file.routes.js
 import { Router } from 'express';
-import { ensureAuth } from '../middlewares/auth.js';
-import prisma from '../lib/prisma.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { logActivity } from '../lib/activity.js';
+import prisma from '../lib/prisma.js';
+import { ensureAuth } from '../middlewares/auth.js';
+import { actorOf } from '../lib/actor.js';
 
-const router = Router();
 const upload = multer({ dest: path.resolve('uploads/tmp') });
+const router = Router();
 
-// อัปโหลดไฟล์
+/** ===== LIST: files ของโปรเจกต์ ===== */
+router.get('/projects/:projectId/files', ensureAuth, async (req, res) => {
+  const { projectId } = req.params;
+  const items = await prisma.file.findMany({
+    where: { projectId },
+    orderBy: { uploadedAt: 'desc' },
+  });
+  res.json(items);
+});
+
+/** ===== UPLOAD ===== */
 router.post('/projects/:projectId/files/upload', ensureAuth, upload.single('file'), async (req, res) => {
   const { projectId } = req.params;
   const f = req.file;
   if (!f) return res.status(400).json({ error: 'no_file' });
 
-  const outDir = path.resolve('uploads', projectId);
-  fs.mkdirSync(outDir, { recursive: true });
-  const finalPath = path.join(outDir, f.originalname);
-  fs.renameSync(f.path, finalPath);
+  const dir = path.resolve('uploads', projectId);
+  fs.mkdirSync(dir, { recursive: true });
+  const newPath = path.join(dir, f.originalname);
+  fs.renameSync(f.path, newPath);
 
-  const rec = await prisma.file.create({
+  const fileRec = await prisma.file.create({
     data: {
       projectId,
-      originalname: f.originalname,
       filename: f.originalname,
+      originalname: f.originalname,
+      mimetype: f.mimetype,
       size: f.size,
     },
-    select: { id: true, projectId: true, originalname: true, filename: true, size: true },
   });
 
-  await logActivity(projectId, 'FILE_UPLOADED', { name: rec.originalname }, req.user);
+  await prisma.activity.create({
+    data: {
+      projectId,
+      type: 'FILE_UPLOADED',
+      payload: {
+        name: f.originalname,
+        by: actorOf(req),
+      },
+    },
+  });
 
-  res.json(rec);
+  res.json(fileRec);
 });
 
-// ลบไฟล์
+/** ===== DELETE ===== */
 router.delete('/files/:id', ensureAuth, async (req, res) => {
-  const file = await prisma.file.findUnique({ where: { id: req.params.id } });
-  if (!file) return res.status(404).json({ error: 'not_found' });
+  const { id } = req.params;
+  const fileRec = await prisma.file.findUnique({ where: { id } });
+  if (!fileRec) return res.status(404).json({ error: 'not_found' });
 
-  await prisma.file.delete({ where: { id: file.id } });
-  const p = path.resolve('uploads', file.projectId, file.filename || '');
-  if (fs.existsSync(p)) try { fs.unlinkSync(p); } catch {}
+  const fp = path.resolve('uploads', fileRec.projectId, fileRec.filename);
+  if (fs.existsSync(fp)) fs.unlinkSync(fp);
 
-  await logActivity(file.projectId, 'FILE_DELETED', { name: file.originalname }, req.user);
+  await prisma.file.delete({ where: { id } });
+
+  await prisma.activity.create({
+    data: {
+      projectId: fileRec.projectId,
+      type: 'FILE_DELETED',
+      payload: {
+        name: fileRec.originalname || fileRec.filename,
+        by: actorOf(req),
+      },
+    },
+  });
 
   res.json({ ok: true });
 });

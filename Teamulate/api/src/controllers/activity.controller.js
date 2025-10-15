@@ -1,13 +1,14 @@
-import { ActivityModel } from '../models/activity.model.js';
+// api/src/controllers/activity.controller.js
+import prisma from '../lib/prisma.js';
 
 export const ActivityController = {
-  listByProject: async (req, res) => {
-    try {
-      const items = await ActivityModel.listByProject(req.params.projectId);
-      res.json({ items });
-    } catch (e) {
-      console.error('[Activity.listByProject]', e);
-      res.status(500).json({ error: 'list activity failed' });
-    }
-  },
+  async listByProject(req, res) {
+    const { projectId } = req.params;
+    const items = await prisma.activity.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, type: true, payload: true, createdAt: true }
+    });
+    res.json({ items });
+  }
 };

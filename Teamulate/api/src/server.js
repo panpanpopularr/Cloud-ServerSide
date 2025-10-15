@@ -20,6 +20,7 @@ import activityRoutes from './routes/activity.routes.js';
 import memberRoutes from './routes/member.routes.js';
 import { initSocket } from './lib/socket.js';
 import { ensureAdminSeed } from './lib/bootstrap.js';
+import { attachUser } from './middlewares/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,7 +42,7 @@ const IS_CROSS_SITE =
 
 const app = express();
 
-// ถ้าอยู่หลัง reverse proxy (เช่น cloudflared) ให้เชื่อ header proto เพื่อ set secure cookie ได้
+// ถ้าอยู่หลัง reverse proxy (เช่น cloudflared / nginx) ให้เชื่อ header proto
 app.set('trust proxy', 1);
 
 // ===== CORS =====
@@ -77,6 +78,9 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
+// แนบ user จาก JWT cookie ถ้ามี (จะทำให้ /auth/me และ route อื่นดึง req.user ได้เสมอ)
+app.use(attachUser);
+
 // ===== session =====
 app.use(
   session({
@@ -101,6 +105,9 @@ app.use(passport.session());
 // ===== static =====
 app.use('/uploads', express.static(path.resolve('uploads')));
 
+// ===== health =====
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
 // ===== routes =====
 app.use(authRoutes);
 app.use(adminRoutes);
@@ -116,6 +123,8 @@ app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.url}`));
 
 // ===== start server =====
 const server = http.createServer(app);
+
+// ส่งค่า origins เป็น array ให้ socket.io (ใน lib/socket.js ควรรองรับ array)
 initSocket(server, { corsOrigin: ALLOWED_ORIGINS });
 
 server.listen(PORT, async () => {

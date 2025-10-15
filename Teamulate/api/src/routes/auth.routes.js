@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import cookie from 'cookie';
 import passport from 'passport';
+import prisma from '../lib/prisma.js';
 import { UserModel } from '../models/user.model.js';
 import { signUser, ensureAuth } from '../middlewares/auth.js';
 
@@ -17,19 +18,19 @@ function cookieOpts() {
   return {
     httpOnly: true,
     sameSite: IS_CROSS_SITE ? 'none' : 'lax',
-    secure: IS_CROSS_SITE,          // ต้อง true ถ้า sameSite='none'
+    secure: IS_CROSS_SITE,
     path: '/',
     maxAge: 60 * 60 * 24 * 7,
   };
 }
 
-// ===== Local Register =====
+// ===== Register =====
 router.post('/auth/register', async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
-    if (!name?.trim() || !email?.trim() || !password?.trim()) {
+    if (!name?.trim() || !email?.trim() || !password?.trim())
       return res.status(400).json({ error: 'bad_request' });
-    }
+
     const exist = await UserModel.findByEmail(email);
     if (exist) return res.status(409).json({ error: 'email_taken' });
 
@@ -49,7 +50,7 @@ router.post('/auth/register', async (req, res) => {
   }
 });
 
-// ===== Local Login =====
+// ===== Login =====
 router.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -67,24 +68,20 @@ router.post('/auth/login', async (req, res) => {
 
 // ===== Logout =====
 router.post('/auth/logout', (_req, res) => {
-  res.setHeader(
-    'Set-Cookie',
-    cookie.serialize('token', '', { ...cookieOpts(), maxAge: 0 })
-  );
+  res.setHeader('Set-Cookie', cookie.serialize('token', '', { ...cookieOpts(), maxAge: 0 }));
   res.json({ ok: true });
 });
 
-// ===== Me =====
+// ===== Me (อ่านจาก DB สด ๆ ทุกครั้ง เพื่อให้ชื่อที่แก้ในโปรไฟล์อัปเดตทันที) =====
 router.get('/auth/me', ensureAuth, async (req, res) => {
   try {
-    res.json({
-      user: {
-        id: req.user.uid || req.user.id,
-        name: req.user.name,
-        email: req.user.email,
-        role: (req.user.role || 'user').toUpperCase(),
-      },
+    const uid = req.user?.uid || req.user?.id;
+    const user = await prisma.user.findUnique({
+      where: { id: uid },
+      select: { id: true, name: true, email: true, role: true },
     });
+    if (!user) return res.status(404).json({ error: 'not_found' });
+    res.json({ user });
   } catch (e) {
     console.error('[auth/me]', e);
     res.status(500).json({ error: 'server_error' });
@@ -106,7 +103,6 @@ router.get(
   (req, res) => {
     const token = signUser(req.user);
     res.setHeader('Set-Cookie', cookie.serialize('token', token, cookieOpts()));
-    // กลับหน้า FE (จะใช้ token จาก cookie ต่อ)
     res.redirect(FRONTEND);
   }
 );

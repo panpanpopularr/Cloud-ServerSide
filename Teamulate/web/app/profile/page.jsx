@@ -1,6 +1,10 @@
+// web/app/profile/page.jsx
 'use client';
-import { useState, useEffect } from 'react';
+
+import { useEffect, useState } from 'react';
+import { mutate as swrMutate } from 'swr';
 import { useRouter } from 'next/navigation';
+import { API } from '@/lib/api';
 
 export default function ProfilePage() {
   const [user, setUser] = useState({ name: '', email: '' });
@@ -8,39 +12,48 @@ export default function ProfilePage() {
   const [message, setMessage] = useState('');
   const router = useRouter();
 
+  // โหลดข้อมูลผู้ใช้
   useEffect(() => {
-    fetch('/api/user/profile', { method: 'GET', credentials: 'include' })
-      .then(res => res.json())
-      .then(data => {
+    (async () => {
+      try {
+        const res = await fetch(`${API}/users/me`, { credentials: 'include' });
+        if (!res.ok) throw new Error('failed');
+        const me = await res.json();
         setUser({
-          name: data.name || '',
-          email: data.email || '',
+          name: me.name || '',
+          email: me.email || '',
         });
-        setLoading(false);
-      })
-      .catch(() => {
-        setLoading(false);
+      } catch {
         setMessage('ไม่สามารถโหลดข้อมูลผู้ใช้ได้');
-      });
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
+  // บันทึกชื่อผู้ใช้
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage('');
 
     try {
-      const res = await fetch('/api/user/profile', {
-        method: 'PUT',
+      const res = await fetch(`${API}/users/me`, {
+        method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: user.name }),
       });
 
       if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (j?.user) setUser((u) => ({ ...u, name: j.user.name ?? u.name }));
         setMessage('อัปเดตข้อมูลเรียบร้อยแล้ว!');
+        // รีเฟรชแคชให้หัวเว็บ (ที่เรียก /auth/me) เห็นชื่อใหม่ทันที
+        await swrMutate(`${API}/auth/me`);
+        await swrMutate(`${API}/users/me`);
       } else {
-        const errorData = await res.json();
-        setMessage(`เกิดข้อผิดพลาด: ${errorData.message || 'ไม่สามารถอัปเดตได้'}`);
+        const err = await res.json().catch(() => ({}));
+        setMessage(`เกิดข้อผิดพลาด: ${err?.error || 'ไม่สามารถอัปเดตได้'}`);
       }
     } catch {
       setMessage('เกิดข้อผิดพลาดในการเชื่อมต่อ');
@@ -66,7 +79,7 @@ export default function ProfilePage() {
             <label style={label}>ชื่อ</label>
             <input
               value={user.name}
-              onChange={(e) => setUser(prev => ({ ...prev, name: e.target.value }))}
+              onChange={(e) => setUser((prev) => ({ ...prev, name: e.target.value }))}
               style={inp}
             />
           </div>
@@ -81,14 +94,16 @@ export default function ProfilePage() {
           </div>
 
           {message && (
-            <div style={{
-              padding: 10,
-              background: message.startsWith('เกิดข้อผิดพลาด') ? '#7f1d1d' : '#14532d',
-              color: '#fff',
-              borderRadius: 8,
-              fontSize: 14,
-              textAlign: 'center',
-            }}>
+            <div
+              style={{
+                padding: 10,
+                background: message.startsWith('เกิดข้อผิดพลาด') ? '#7f1d1d' : '#14532d',
+                color: '#fff',
+                borderRadius: 8,
+                fontSize: 14,
+                textAlign: 'center',
+              }}
+            >
               {message}
             </div>
           )}
@@ -107,7 +122,12 @@ export default function ProfilePage() {
   );
 }
 
-// ---- Styles ----
+/* ---- Styles ---- */
+const center = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
 
 const card = {
   background: '#0f1720',
@@ -142,10 +162,4 @@ const label = {
   marginBottom: 4,
   fontSize: 14,
   fontWeight: 500,
-};
-
-const center = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
 };

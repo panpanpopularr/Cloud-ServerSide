@@ -1,55 +1,46 @@
-// File: api/src/routes/user.routes.js
-
 import { Router } from 'express';
 import prisma from '../lib/prisma.js';
+import { ensureAuth } from '../middlewares/auth.js';
 
 const router = Router();
 
-// Middleware สำหรับตรวจสอบว่าผู้ใช้ล็อคอินแล้วหรือยัง
-const isAuthenticated = (req, res, next) => {
-  if (req.isAuthenticated()) {
-    return next();
-  }
-  res.status(401).json({ message: 'Unauthorized' });
-};
-
-// === GET /api/user/profile: สำหรับดึงข้อมูลโปรไฟล์ผู้ใช้ปัจจุบัน ===
-router.get('/user/profile', isAuthenticated, async (req, res) => {
+/** อ่านข้อมูลตัวเอง */
+router.get('/users/me', ensureAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
+    const uid = req.user?.uid || req.user?.id;
+    const u = await prisma.user.findUnique({
+      where: { id: uid },
+      select: { id: true, email: true, name: true, role: true, avatar: true, createdAt: true, updatedAt: true },
     });
-
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    const { password, ...userWithoutPassword } = user;
-    res.json(userWithoutPassword);
-  } catch (error) {
-    console.error('Error fetching profile:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+    if (!u) return res.status(404).json({ error: 'not_found' });
+    res.json(u);
+  } catch (e) {
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
-// === PUT /api/user/profile: สำหรับอัปเดตข้อมูลโปรไฟล์ ===
-router.put('/user/profile', isAuthenticated, async (req, res) => {
+/** อัปเดตชื่อของตัวเอง */
+router.patch('/users/me', ensureAuth, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { name, email, phone } = req.body;
+    const uid = req.user?.uid || req.user?.id;
+    const name = (req.body?.name ?? '').toString().trim();
 
-    const updatedUser = await prisma.user.update({
-      where: { id: userId },
-      data: { name, email, phone },
+    if (!name) return res.status(400).json({ error: 'name required' });
+    if (name.length > 100) return res.status(400).json({ error: 'name too long' });
+
+    const updated = await prisma.user.update({
+      where: { id: uid },
+      data: { name },
+      select: { id: true, email: true, name: true, role: true, avatar: true, createdAt: true, updatedAt: true },
     });
 
-    const { password, ...userWithoutPassword } = updatedUser;
-    res.json(userWithoutPassword);
-    
-  } catch (error) { // ✅ ===== จุดที่แก้ไขแล้ว (เพิ่มปีกกา) ===== ✅
-    console.error('Error updating profile:', error);
-    res.status(500).json({ message: 'Internal Server Error' });
+   // sync ชื่อใน session ปัจจุบัน (ถ้าพาสปอร์ต serialize เก็บทั้ง object)
+   if (req.user) req.user.name = updated.name;
+
+    res.json({ ok: true, user: updated });
+  } catch (e) {
+    if (e.code === 'P2025') return res.status(404).json({ error: 'not_found' });
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
