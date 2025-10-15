@@ -7,7 +7,7 @@ import { io } from 'socket.io-client';
 const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
 
 const fetcher = async (url) => {
-  const r = await fetch(url, { cache: 'no-store' });
+  const r = await fetch(url, { cache:'no-store', credentials:'include' });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 };
@@ -343,6 +343,7 @@ export default function Page() {
     </div>
   );
 }
+
 
 const card = { padding:12, background:'#0f1720', border:'1px solid #1e293b', borderRadius:12 };
 const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };

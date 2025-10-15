@@ -3,8 +3,29 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql" 
   url      = env("DATABASE_URL")
+}
+
+enum TaskStatus {
+  ACTIVE
+  UNASSIGNED
+  CANCELED
+  REVIEW
+  DONE
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  // เพิ่มเพื่อรองรับทั้ง local และ OAuth
+  password  String?        // bcrypt hash (สำหรับสมัคร/ล็อกอินปกติ)
+  avatar    String?        // สำหรับ Google
+  provider  String?        // "google" | "local" | อื่น ๆ ได้
+
+  tasks     Task[]  @relation("TaskCreator")
+  createdAt DateTime @default(now())
 }
 
 model Project {
@@ -27,23 +48,22 @@ model Task {
   createdById String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
-  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User?  @relation("TaskCreator", fields: [createdById], references: [id])
 }
 
 model File {
   id           String   @id @default(uuid())
   projectId    String
-
-  // ชั่วคราว: ทำให้เป็น optional ก่อน
-  filename     String?     // << ชั่วคราว
-  originalname String?     // << ชั่วคราว
-  mimetype     String?     // << ชั่วคราว
+  filename     String
+  originalname String
+  mimetype     String
   size         Int
-  uploadedAt   DateTime?   // << ชั่วคราว
+  uploadedAt   DateTime @default(now())
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
-
 
 model Activity {
   id        String   @id @default(uuid())
@@ -51,13 +71,6 @@ model Activity {
   type      String
   payload   Json
   createdAt DateTime @default(now())
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-}
 
-enum TaskStatus {
-  ACTIVE
-  UNASSIGNED
-  CANCELED
-  REVIEW
-  DONE
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
