@@ -35,8 +35,8 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
-// แก้ตรงนี้ — ลบ app.options('*', cors(...)) ออกไป
-// ใช้ global handler สำหรับ preflight แทน
+
+// global preflight handler
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', FRONTEND);
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -61,7 +61,7 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false, // true เฉพาะเมื่อใช้ https
+      secure: false, // true เมื่อใช้ https
       maxAge: 1000 * 60 * 60 * 24 * 7,
     },
   })
