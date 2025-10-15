@@ -1,69 +1,77 @@
 // api/src/routes/member.routes.js
 import { Router } from 'express';
 import prisma from '../lib/prisma.js';
-import { emitActivity } from '../lib/socket.js';
+import { ensureAuth } from '../middlewares/auth.js';
+import { ActivityModel } from '../models/activity.model.js';
 
 const router = Router();
 
 /**
  * GET /projects/:projectId/members
- * → ดึงรายชื่อสมาชิกในโปรเจกต์
+ * คืนสมาชิกทั้งหมดของโปรเจ็กต์ (พร้อม user info)
  */
-router.get('/projects/:projectId/members', async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    const members = await prisma.projectMember.findMany({
-      where: { projectId },
-      include: { user: { select: { id: true, name: true, email: true } } },
-    });
-    res.json(members);
-  } catch (e) {
-    console.error('[GET members]', e);
-    res.status(500).json({ error: 'list members failed' });
-  }
+router.get('/projects/:projectId/members', ensureAuth, async (req, res) => {
+  const { projectId } = req.params;
+  const items = await prisma.projectMember.findMany({
+    where: { projectId },
+    include: { user: { select: { id: true, name: true, email: true } } },
+    orderBy: { id: 'desc' },
+  });
+  res.json(items);
 });
 
 /**
- * POST /projects/:projectId/members
- * body: { userId }
- * → เชิญเพื่อนเข้าร่วมโปรเจกต์
+ * POST /projects/:projectId/members  { userId }
+ * เพิ่มสมาชิกใหม่ ลง activity ให้ด้วย
  */
-router.post('/projects/:projectId/members', async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    const { userId } = req.body;
-    if (!userId) return res.status(400).json({ error: 'userId required' });
+router.post('/projects/:projectId/members', ensureAuth, async (req, res) => {
+  const { projectId } = req.params;
+  const { userId } = req.body || {};
+  if (!userId?.trim()) return res.status(400).json({ error: 'userId required' });
 
-    const member = await prisma.projectMember.create({
-      data: { projectId, userId, role: 'editor' },
-    });
+  // มีอยู่แล้วไม่ซ้ำ
+  const created = await prisma.projectMember.upsert({
+    where: { projectId_userId: { projectId, userId } },
+    update: {},
+    create: { projectId, userId },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
 
-    emitActivity(projectId, 'MEMBER_ADDED', { userId });
-    res.status(201).json(member);
-  } catch (e) {
-    console.error('[ADD member]', e);
-    res.status(500).json({ error: 'add member failed' });
-  }
+  await ActivityModel.add({
+    projectId,
+    type: 'MEMBER_ADDED',
+    payload: { userId, by: req.user?.id ?? 'system' },
+  });
+
+  res.json(created);
 });
 
 /**
  * DELETE /projects/:projectId/members/:userId
- * → ลบสมาชิกออกจากโปรเจกต์
+ * ลบสมาชิก อนุญาตเฉพาะ owner เท่านั้น
  */
-router.delete('/projects/:projectId/members/:userId', async (req, res) => {
-  try {
-    const { projectId, userId } = req.params;
+router.delete('/projects/:projectId/members/:userId', ensureAuth, async (req, res) => {
+  const { projectId, userId } = req.params;
 
-    await prisma.projectMember.delete({
-      where: { projectId_userId: { projectId, userId } },
-    });
+  const project = await prisma.project.findUnique({ where: { id: projectId } });
+  if (!project) return res.status(404).json({ error: 'project_not_found' });
 
-    emitActivity(projectId, 'MEMBER_REMOVED', { userId });
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('[REMOVE member]', e);
-    res.status(500).json({ error: 'remove member failed' });
+  // ✅ อนุญาตเฉพาะเจ้าของโปรเจ็กต์ลบสมาชิกได้
+  if (project.ownerId !== req.user.id) {
+    return res.status(403).json({ error: 'only_owner_can_remove' });
   }
+
+  await prisma.projectMember.delete({
+    where: { projectId_userId: { projectId, userId } },
+  });
+
+  await ActivityModel.add({
+    projectId,
+    type: 'MEMBER_REMOVED',
+    payload: { userId, by: req.user?.id ?? 'system' },
+  });
+
+  res.json({ ok: true });
 });
 
 export default router;
