@@ -1,23 +1,25 @@
+// web/lib/api.js
 export const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
 
-async function parse(r) {
-  const text = await r.text();
-  try { return JSON.parse(text); } catch { return { error: text || `HTTP ${r.status}` }; }
-}
-
-export async function apiGet(path) {
-  const r = await fetch(`${API}${path}`, { credentials: 'include' });
-  if (!r.ok) throw new Error((await parse(r)).error || `HTTP ${r.status}`);
-  return parse(r);
-}
-
-export async function apiPost(path, body) {
+async function coreFetch(path, { method = 'GET', headers = {}, body, plain = false } = {}) {
   const r = await fetch(`${API}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}),
+    method,
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+    credentials: 'include', // สำคัญ! เพื่อส่ง cookie ไป-กลับระหว่าง domain/port
+    cache: 'no-store',
   });
-  if (!r.ok) throw new Error((await parse(r)).error || `HTTP ${r.status}`);
-  return parse(r);
+  if (!plain) {
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(data?.error || `HTTP ${r.status}`), { status: r.status, data });
+    return data;
+  } else {
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r;
+  }
 }
+
+export const apiGet  = (path)           => coreFetch(path);
+export const apiPost = (path, body)     => coreFetch(path, { method:'POST', body });
+export const apiPatch= (path, body)     => coreFetch(path, { method:'PATCH', body });
+export const apiDel  = (path)           => coreFetch(path, { method:'DELETE' });

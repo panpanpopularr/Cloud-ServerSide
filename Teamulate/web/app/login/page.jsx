@@ -1,35 +1,40 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { API, apiGet, apiPost } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [email,setEmail] = useState('');
-  const [password,setPassword] = useState('');
+  const [checking, setChecking] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
 
-  // ถ้า login อยู่แล้ว -> ไป workspace
   useEffect(() => {
+    // ถ้า login อยู่แล้ว ส่งเข้า workspace
     apiGet('/auth/me')
       .then(r => { if (r.user) router.replace('/workspace'); })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => setChecking(false));
   }, [router]);
 
-  if (loading) return null;
-
-  const submit = async (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
     setErr('');
     try {
       await apiPost('/auth/login', { email, password });
+      // redirect ไป workspace
       router.replace('/workspace');
-    } catch (ex) {
-      setErr('อีเมลหรือรหัสผ่านไม่ถูกต้อง');
+      // fallback กัน Next บางทีไม่ยอมเปลี่ยน
+      setTimeout(() => { window.location.href = '/workspace'; }, 50);
+    } catch (e) {
+      setErr(e?.data?.error || 'Login failed');
     }
   };
+
+  if (checking) return null;
 
   return (
     <div style={wrap}>
@@ -37,36 +42,26 @@ export default function LoginPage() {
         <h1 style={{ marginBottom: 12 }}>Login</h1>
         <p style={{ opacity: .8, marginBottom: 18 }}>Login to continue to MyApp</p>
 
-        <a href={`${API}/auth/google`} style={gbtn}>
+        <a
+          href={`${API}/auth/google`}
+          style={gbtn}
+        >
           <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg" alt="" style={{width:20,height:20}}/>
           <span>Sign in with Google</span>
         </a>
 
-        <div style={divider}><span>OR</span></div>
+        <div style={{ margin: '12px 0', opacity:.6 }}>OR</div>
 
-        <form onSubmit={submit} style={{ textAlign:'left' }}>
-          <input
-            value={email}
-            onChange={e=>setEmail(e.target.value)}
-            placeholder="Email"
-            type="email"
-            required
-            style={inp}
-          />
-          <input
-            value={password}
-            onChange={e=>setPassword(e.target.value)}
-            placeholder="Password"
-            type="password"
-            required
-            style={inp}
-          />
-          {err && <div style={{ color:'#fecaca', fontSize:12, marginBottom:8 }}>{err}</div>}
+        <form onSubmit={onSubmit} style={{ display:'grid', gap:10 }}>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" type="email" style={inp}/>
+          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password" style={inp}/>
           <button type="submit" style={btn}>Login</button>
         </form>
 
+        {err && <div style={{marginTop:10, color:'#fecaca'}}>{err}</div>}
+
         <div style={{ marginTop: 14, fontSize: 12, opacity: .8 }}>
-          Don&apos;t have an account? <a href="/register" style={{ color: '#93c5fd' }}>Register</a>
+          Don&apos;t have an account? <Link href="/register" style={{ color: '#93c5fd' }}>Register</Link>
         </div>
       </div>
     </div>
@@ -76,6 +71,5 @@ export default function LoginPage() {
 const wrap = { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #7289da, #99aab5)' };
 const card = { width: 360, background: '#2f3136', color: '#fff', padding: 32, borderRadius: 12, boxShadow: '0 10px 25px rgba(0,0,0,.5)', textAlign: 'center' };
 const gbtn = { display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', background: '#fff', color: '#000', padding: '10px 14px', borderRadius: 8, textDecoration: 'none', fontWeight: 600 };
-const divider = { display:'flex', alignItems:'center', gap:10, color:'#b9bbbe', fontSize:12, margin:'18px 0', justifyContent:'center' };
-const inp = { width:'100%', padding:'10px', marginBottom:12, borderRadius:6, border:'none', outline:'none' };
-const btn = { width:'100%', padding:'10px', borderRadius:6, border:'none', background:'#7289da', color:'#fff', fontWeight:600, cursor:'pointer' };
+const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };
+const inp  = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'10px 12px', borderRadius:8 };

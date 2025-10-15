@@ -1,37 +1,40 @@
 'use client';
+
 import { useEffect, useState } from 'react';
 import { API, apiGet, apiPost } from '@/lib/api';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [name,setName] = useState('');
+  const [checking, setChecking] = useState(true);
+  const [name, setName] = useState('');
   const [email,setEmail] = useState('');
   const [password,setPassword] = useState('');
-  const [confirm,setConfirm] = useState('');
-  const [err, setErr] = useState('');
+  const [err,setErr] = useState('');
 
   useEffect(() => {
     apiGet('/auth/me')
       .then(r => { if (r.user) router.replace('/workspace'); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(()=>{})
+      .finally(()=> setChecking(false));
   }, [router]);
 
-  if (loading) return null;
-
-  const submit = async (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
     setErr('');
-    if (password !== confirm) { setErr('รหัสผ่านไม่ตรงกัน'); return; }
     try {
       await apiPost('/auth/register', { name, email, password });
+      // login auto หรือจะให้ user ใส่ใหม่ก็ได้ — ที่นี่ login auto
+      await apiPost('/auth/login', { email, password });
       router.replace('/workspace');
-    } catch (ex) {
-      setErr('อีเมลนี้ถูกใช้งานแล้วหรือสมัครไม่สำเร็จ');
+      setTimeout(()=>{ window.location.href='/workspace'; }, 50);
+    } catch (e) {
+      setErr(e?.data?.error || 'Register failed');
     }
   };
+
+  if (checking) return null;
 
   return (
     <div style={wrap}>
@@ -44,19 +47,19 @@ export default function RegisterPage() {
           <span>Register with Google</span>
         </a>
 
-        <div style={divider}><span>OR</span></div>
+        <div style={{ margin: '12px 0', opacity:.6 }}>OR</div>
 
-        <form onSubmit={submit} style={{ textAlign:'left' }}>
+        <form onSubmit={onSubmit} style={{ display:'grid', gap:10 }}>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="Full name" style={inp}/>
-          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" type="email" required style={inp}/>
-          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password" required style={inp}/>
-          <input value={confirm} onChange={e=>setConfirm(e.target.value)} placeholder="Confirm password" type="password" required style={inp}/>
-          {err && <div style={{ color:'#fecaca', fontSize:12, marginBottom:8 }}>{err}</div>}
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" type="email" style={inp}/>
+          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Password" type="password" style={inp}/>
           <button type="submit" style={btn}>Register</button>
         </form>
 
+        {err && <div style={{marginTop:10, color:'#fecaca'}}>{err}</div>}
+
         <div style={{marginTop:14, fontSize:12, opacity:.8}}>
-          Already have an account? <a href="/login" style={{color:'#93c5fd'}}>Login</a>
+          Already have an account? <Link href="/login" style={{color:'#93c5fd'}}>Login</Link>
         </div>
       </div>
     </div>
@@ -66,6 +69,5 @@ export default function RegisterPage() {
 const wrap = { minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'linear-gradient(135deg, #7289da, #99aab5)' };
 const card = { width:360, background:'#2f3136', color:'#fff', padding:32, borderRadius:12, boxShadow:'0 10px 25px rgba(0,0,0,.5)', textAlign:'center' };
 const gbtn = { display:'flex', gap:10, alignItems:'center', justifyContent:'center', background:'#fff', color:'#000', padding:'10px 14px', borderRadius:8, textDecoration:'none', fontWeight:600 };
-const divider = { display:'flex', alignItems:'center', gap:10, color:'#b9bbbe', fontSize:12, margin:'18px 0', justifyContent:'center' };
-const inp = { width:'100%', padding:'10px', marginBottom:12, borderRadius:6, border:'none', outline:'none' };
-const btn = { width:'100%', padding:'10px', borderRadius:6, border:'none', background:'#7289da', color:'#fff', fontWeight:600, cursor:'pointer' };
+const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };
+const inp  = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'10px 12px', borderRadius:8 };

@@ -3,11 +3,13 @@
 import useSWR from 'swr';
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { apiGet } from '@/lib/api';
+import { useRouter } from 'next/navigation';
 
 const API = process.env.NEXT_PUBLIC_API || 'http://localhost:4000';
 
 const fetcher = async (url) => {
-  const r = await fetch(url, { cache:'no-store', credentials:'include' });
+  const r = await fetch(url, { cache: 'no-store', credentials: 'include' });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 };
@@ -79,34 +81,54 @@ function renderActivity(a) {
   }
 }
 
-export default function Page() {
-  // Projects
-  const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, fetcher);
+export default function WorkspacePage() {
+  const router = useRouter();
+  const [authReady, setAuthReady] = useState(false);
+  const [me, setMe] = useState(null);
+
+  // state ที่ไม่เกี่ยวกับ hooks order
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
+  const [savingId, setSavingId] = useState(null);
+  const [msg, setMsg] = useState('');
+  const fileRef = useRef();
 
-  // Tasks
-  const { data: tasksRaw, mutate: refetchTasks } =
-    useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, fetcher);
+  // ตรวจ session — ห้าม early return ก่อนเรียก hooks อื่น ๆ
+  useEffect(() => {
+    let alive = true;
+    apiGet('/auth/me')
+      .then(r => {
+        if (!alive) return;
+        if (!r.user) {
+          router.replace('/login');
+        } else {
+          setMe(r.user);
+          setAuthReady(true);
+        }
+      })
+      .catch(() => router.replace('/login'));
+    return ()=>{ alive = false; };
+  }, [router]);
+
+  // SWR hooks ต้องถูกเรียกทุกครั้ง → ใช้ key เป็น null ถ้ายังไม่พร้อม
+  const projectsKey = authReady ? `${API}/projects` : null;
+  const { data: projects, mutate: refetchProjects } = useSWR(projectsKey, fetcher);
+
+  const tasksKey = authReady && selected ? `${API}/projects/${selected}/tasks` : null;
+  const { data: tasksRaw, mutate: refetchTasks } = useSWR(tasksKey, fetcher);
   const tasks = Array.isArray(tasksRaw) ? tasksRaw :
     (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
-  // Files
-  const { data: files, mutate: refetchFiles } =
-    useSWR(() => selected ? `${API}/projects/${selected}/files` : null, fetcher);
-  const fileRef = useRef();
+  const filesKey = authReady && selected ? `${API}/projects/${selected}/files` : null;
+  const { data: files, mutate: refetchFiles } = useSWR(filesKey, fetcher);
 
-  // Activity
-  const { data: activity, mutate: refetchActivity } =
-    useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, fetcher);
+  const activityKey = authReady && selected ? `${API}/projects/${selected}/activity` : null;
+  const { data: activity, mutate: refetchActivity } = useSWR(activityKey, fetcher);
 
-  const [savingId, setSavingId] = useState(null);
-  const [msg, setMsg] = useState('');
-
-  // ==== Socket live updates ====
+  // socket
   useEffect(() => {
-    if (!selected) return;
+    if (!authReady || !selected) return;
     const socket = io(API, {
       path: '/socket.io',
       transports: ['websocket'],
@@ -119,7 +141,7 @@ export default function Page() {
       refetchFiles();
     });
     return () => socket.disconnect();
-  }, [selected]); // eslint-disable-line
+  }, [authReady, selected]); // eslint-disable-line
 
   // === actions ===
   const createProject = async () => {
@@ -127,6 +149,7 @@ export default function Page() {
     const resp = await fetch(`${API}/projects`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
+      credentials: 'include',
       body: JSON.stringify({ name: pname, description: pdesc })
     });
     if (!resp.ok) { alert('สร้างโปรเจ็กต์ไม่สำเร็จ'); return; }
@@ -139,18 +162,17 @@ export default function Page() {
 
   const deleteProject = async (id) => {
     if (!confirm('ยืนยันลบโปรเจกต์นี้? งาน ไฟล์ และกิจกรรมที่เกี่ยวข้องจะถูกลบถาวร')) return;
-    // optimistic update
     const prev = projects ?? [];
     await refetchProjects(prev.filter(p => p.id !== id), { revalidate:false });
 
     try {
-      const resp = await fetch(`${API}/projects/${id}`, { method:'DELETE' });
+      const resp = await fetch(`${API}/projects/${id}`, { method:'DELETE', credentials: 'include' });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       if (selected === id) setSelected(null);
       await Promise.all([refetchProjects(), refetchTasks(), refetchFiles(), refetchActivity()]);
     } catch (e) {
       console.error(e);
-      await refetchProjects(prev, { revalidate:false }); // rollback
+      await refetchProjects(prev, { revalidate:false });
       alert('ลบโปรเจ็กต์ไม่สำเร็จ');
     }
   };
@@ -164,6 +186,7 @@ export default function Page() {
     const resp = await fetch(`${API}/projects/${selected}/tasks`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
+      credentials: 'include',
       body: JSON.stringify({ title, deadline, status })
     });
     if (!resp.ok) { alert('เพิ่มงานไม่สำเร็จ'); return; }
@@ -178,6 +201,7 @@ export default function Page() {
       const resp = await fetch(`${API}/tasks/${taskId}`, {
         method:'PATCH',
         headers:{'Content-Type':'application/json'},
+        credentials: 'include',
         body: JSON.stringify({ status: newCode })
       });
       if (!resp.ok) throw new Error();
@@ -195,7 +219,7 @@ export default function Page() {
     if (!selected || !fileRef.current?.files?.[0]) return;
     const fd = new FormData();
     fd.append('file', fileRef.current.files[0]);
-    const resp = await fetch(`${API}/projects/${selected}/files/upload`, { method:'POST', body: fd });
+    const resp = await fetch(`${API}/projects/${selected}/files/upload`, { method:'POST', body: fd, credentials: 'include' });
     if (!resp.ok) { alert('อัปโหลดไม่สำเร็จ'); return; }
     fileRef.current.value = '';
     await refetchFiles();
@@ -204,15 +228,41 @@ export default function Page() {
 
   const deleteFile = async (fileId) => {
     if (!confirm('ลบไฟล์นี้ใช่ไหม?')) return;
-    const resp = await fetch(`${API}/files/${fileId}`, { method: 'DELETE' });
+    const resp = await fetch(`${API}/files/${fileId}`, { method: 'DELETE', credentials: 'include' });
     if (!resp.ok) { alert('ลบไฟล์ไม่สำเร็จ'); return; }
     await refetchFiles();
     await refetchActivity();
   };
 
+  // Loading (เรียก hooks ไปแล้ว แต่ข้อมูลยังไม่พร้อม)
+  if (!authReady) {
+    return (
+      <div style={{minHeight:'100vh', display:'grid', placeItems:'center', color:'#e6edf3'}}>
+        Loading…
+      </div>
+    );
+  }
+
   // === UI ===
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 380px', gap:16 }}>
+    <div style={{ display:'grid', gridTemplateColumns:'300px 1fr 380px', gap:16, padding:16 }}>
+      {/* Top Bar */}
+      <div style={{ gridColumn:'1 / span 3', ...bar }}>
+        <div><b>Teamulate</b></div>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          {me?.avatar && <img src={me.avatar} alt="avatar" style={{ width:28, height:28, borderRadius:'50%' }} />}
+          <span>{me?.name || me?.email}</span>
+          <button
+            style={btn}
+            onClick={async ()=>{
+              await fetch(`${API}/auth/logout`, { method:'POST', credentials:'include' });
+              window.location.href = '/login';
+            }}>
+            Logout
+          </button>
+        </div>
+      </div>
+
       {/* Projects */}
       <div style={card}>
         <h3 style={{ marginTop:0 }}>Projects</h3>
@@ -227,16 +277,12 @@ export default function Page() {
               <div style={{ display:'flex', gap:8 }}>
                 <button
                   style={{ ...btn, flex:1, background:selected===p.id?'#2563eb':'#122338' }}
-                  onClick={()=>setSelected(p.id)}
-                  title="เลือกโปรเจกต์"
-                >
+                  onClick={()=>setSelected(p.id)}>
                   {p.name}
                 </button>
                 <button
                   onClick={() => deleteProject(p.id)}
-                  style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}
-                  title="ลบโปรเจกต์นี้"
-                >
+                  style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>
                   ✕
                 </button>
               </div>
@@ -277,8 +323,7 @@ export default function Page() {
                         value={t.status}
                         onChange={(e)=> changeTaskStatus(t.id, e.target.value)}
                         disabled={savingId === t.id}
-                        style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1 }}
-                      >
+                        style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1 }}>
                         {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                       </select>
                     </div>
@@ -305,8 +350,7 @@ export default function Page() {
                     <div>
                       <a
                         href={`${API}/uploads/${f.projectId}/${f.filename || f.s3Key || ''}`}
-                        target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}
-                      >
+                        target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}>
                         {f.originalname || f.name || 'file'}
                       </a>
                       <div style={{ fontSize:12, opacity:.7 }}>{(f.size/1024).toFixed(1)} KB</div>
@@ -314,8 +358,7 @@ export default function Page() {
                     <button
                       onClick={()=>deleteFile(f.id)}
                       title="Delete"
-                      style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}
-                    >
+                      style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>
                       🗑
                     </button>
                   </li>
@@ -344,7 +387,7 @@ export default function Page() {
   );
 }
 
-
+const bar = { display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', background:'#0b1320', borderBottom:'1px solid #1e293b', color:'#fff' };
 const card = { padding:12, background:'#0f1720', border:'1px solid #1e293b', borderRadius:12 };
 const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };
 const inp  = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'8px 10px', borderRadius:8 };
