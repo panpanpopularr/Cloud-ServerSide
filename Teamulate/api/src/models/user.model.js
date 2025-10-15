@@ -1,44 +1,57 @@
-import bcrypt from 'bcryptjs';
+// api/src/models/user.model.js
 import prisma from '../lib/prisma.js';
-
-const SALT = 10;
+import bcrypt from 'bcryptjs';
 
 export const UserModel = {
-  async findByEmail(email) {
-    return prisma.user.findUnique({ where: { email } });
-  },
+  // ===== basic finders =====
+  findById: (id) =>
+    prisma.user.findUnique({ where: { id } }),
 
-  async createLocal({ name, email, password, role = 'USER' }) {
-    const hash = await bcrypt.hash(password, SALT);
-    return prisma.user.create({
-      data: { name, email, password: hash, role },
-      select: { id: true, name: true, email: true, role: true, avatar: true, createdAt: true },
-    });
-  },
+  findByEmail: (email) =>
+    prisma.user.findUnique({ where: { email } }),
 
-  async verifyLocal(email, password) {
-    const u = await prisma.user.findUnique({ where: { email } });
-    if (!u || !u.password) return null;
-    const ok = await bcrypt.compare(password, u.password);
-    if (!ok) return null;
-    return { id: u.id, name: u.name, email: u.email, role: u.role, avatar: u.avatar, createdAt: u.createdAt };
-  },
-
-  async allUsers() {
-    return prisma.user.findMany({
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, email: true, name: true, role: true, avatar: true, createdAt: true },
-    });
-  },
-
-  async updateUser(id, { name, role }) {
-    return prisma.user.update({
-      where: { id },
+  // ===== local auth =====
+  createLocal: async ({ name, email, password, role = 'user' }) => {
+    const hashed = await bcrypt.hash(String(password), 10);
+    const u = await prisma.user.create({
       data: {
-        ...(name !== undefined ? { name } : {}),
-        ...(role !== undefined ? { role } : {}),
+        name: name ?? null,
+        email: email.toLowerCase(),
+        password: hashed,
+        role: (role || 'user').toLowerCase(),
       },
-      select: { id: true, email: true, name: true, role: true, avatar: true, createdAt: true },
     });
+    return u;
+  },
+
+  verifyLocal: async (email, password) => {
+    const u = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+    if (!u || !u.password) return null;
+    const ok = await bcrypt.compare(String(password), u.password);
+    return ok ? u : null;
+  },
+
+  // ===== Google OAuth (สำคัญตัวนี้) =====
+  upsertFromGoogle: async ({ email, name, avatar }) => {
+    // บางโปรไฟล์อาจไม่มี name/ภาพ
+    const normEmail = email.toLowerCase();
+    const u = await prisma.user.upsert({
+      where: { email: normEmail },
+      update: {
+        // อัปเดตเฉพาะ field ที่ส่งมาและไม่เป็น null
+        ...(name ? { name } : {}),
+        ...(avatar ? { avatar } : {}),
+      },
+      create: {
+        email: normEmail,
+        name: name || null,
+        avatar: avatar || null,
+        role: 'user',
+        // ไม่ตั้ง password (ล็อกอินด้วย Google)
+      },
+    });
+    return u;
   },
 };

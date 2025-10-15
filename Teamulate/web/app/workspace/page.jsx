@@ -1,6 +1,9 @@
+// web/app/workspace/page.jsx
 'use client';
 
 import useSWR from 'swr';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { API, apiPost, apiPatch, apiDelete, swrFetcher } from '@/lib/api';
@@ -22,28 +25,46 @@ function formatDateTime(ts) {
 }
 
 export default function Page() {
-  // ✅ ใช้ /auth/me และรองรับทั้งรูปแบบ {user:{...}} หรือ {...}
+  const router = useRouter();
+
+  // me (รองรับทั้ง {user:{...}} และ {...})
   const { data: meResp } = useSWR(`${API}/auth/me`, swrFetcher);
   const me = meResp?.user || meResp;
-  const isAdmin = /admin/i.test(me?.role || '');
+  const isAdmin = (me?.role || '').toString().toUpperCase() === 'ADMIN';
 
+  // projects
   const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
 
+  // project detail (เพื่อรู้ ownerId)
+  const { data: selectedProject } = useSWR(
+    () => (selected ? `${API}/projects/${selected}` : null),
+    swrFetcher
+  );
+  const ownerId =
+    selectedProject?.ownerId ||
+    (projects?.find?.((p) => p.id === selected)?.ownerId) ||
+    null;
+  const isOwner = me?.id && ownerId && me.id === ownerId;
+
+  // tasks
   const { data: tasksRaw, mutate: refetchTasks } =
     useSWR(() => selected ? `${API}/projects/${selected}/tasks` : null, swrFetcher);
   const tasks = Array.isArray(tasksRaw) ? tasksRaw :
     (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
+  // files
   const { data: files, mutate: refetchFiles } =
     useSWR(() => selected ? `${API}/projects/${selected}/files` : null, swrFetcher);
   const fileRef = useRef();
 
+  // activity
   const { data: activity, mutate: refetchActivity } =
     useSWR(() => selected ? `${API}/projects/${selected}/activity` : null, swrFetcher);
 
+  // members
   const { data: members, mutate: refetchMembers } =
     useSWR(() => selected ? `${API}/projects/${selected}/members` : null, swrFetcher);
   const [inviteText, setInviteText] = useState('');
@@ -51,6 +72,7 @@ export default function Page() {
   const [savingId, setSavingId] = useState(null);
   const [msg, setMsg] = useState('');
 
+  // socket
   useEffect(() => {
     if (!selected) return;
     const socket = io(API, { path: '/socket.io', transports: ['websocket'], withCredentials: true });
@@ -173,6 +195,7 @@ export default function Page() {
     catch (e) { alert('ลบไฟล์ไม่สำเร็จ: ' + e.message); }
   };
 
+  // members
   const inviteMember = async () => {
     if (!selected) return;
     const userId = inviteText.trim();
@@ -188,23 +211,25 @@ export default function Page() {
     catch (e) { alert('ลบสมาชิกไม่สำเร็จ: ' + e.message); }
   };
 
+  // logout
+  const onLogout = async () => {
+    try { await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'include' }); } catch {}
+    router.replace('/login');
+  };
+
   return (
     <div style={{ display:'grid', gridTemplateColumns:'340px 1fr 380px', gap:16 }}>
       {/* Header */}
       <div style={{ gridColumn:'1 / -1', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <div style={{ fontWeight:600 }}>Teamulate</div>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          {isAdmin && (
-            <a href="/admin" style={{ ...btn, textDecoration:'none' }}>Admin Panel</a>
-          )}
-          <span style={{ opacity:.8 }}>
-            {me ? `${me.name || 'User'} · ${me.id}` : '—'}
-          </span>
-          <a href={`${API}/logout`} style={{ ...btn, textDecoration:'none' }}>Logout</a>
+          {isAdmin && <Link href="/admin" style={{ ...btn, textDecoration:'none' }}>Admin</Link>}
+          <span style={{ opacity:.8 }}>{me ? `${me.name || 'User'} · ${me.id}` : '—'}</span>
+          <button onClick={onLogout} style={btn}>Logout</button>
         </div>
       </div>
 
-      {/* Projects */}
+      {/* Projects + Members */}
       <div style={card}>
         <h3 style={{ marginTop:0 }}>Projects</h3>
         <div>
@@ -212,16 +237,91 @@ export default function Page() {
           <input placeholder="Description" value={pdesc} onChange={e=>setPdesc(e.target.value)} style={inp} />
           <button onClick={createProject} style={btn}>Create</button>
         </div>
+
         <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
           {projects?.map(p=>(
             <li key={p.id} style={{ marginBottom:8 }}>
               <div style={{ display:'flex', gap:8 }}>
-                <button style={{ ...btn, flex:1, background:selected===p.id?'#2563eb':'#122338' }} onClick={()=>setSelected(p.id)}>{p.name}</button>
-                <button onClick={() => deleteProject(p.id)} style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>✕</button>
+                <button
+                  style={{ ...btn, flex:1, background:selected===p.id?'#2563eb':'#122338' }}
+                  onClick={()=>setSelected(p.id)}
+                >
+                  {p.name}
+                </button>
+                {/* ให้ลบโปรเจ็กต์เฉพาะ owner (หรือ admin) */}
+                {(me?.id === p.ownerId || isAdmin) && (
+                  <button
+                    onClick={() => deleteProject(p.id)}
+                    style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}
+                    title="ลบโปรเจกต์นี้"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
             </li>
           )) || <div style={{ opacity:.7 }}>No projects.</div>}
         </ul>
+
+        {/* Members (กลับมาแล้ว) */}
+        {selected && (
+          <div style={{ marginTop:16 }}>
+            <h4 style={{ margin:'16px 0 8px' }}>Members</h4>
+
+            {/* เชิญสมาชิก: เฉพาะเจ้าของโปรเจกต์/แอดมิน */}
+            {(isOwner || isAdmin) ? (
+              <div style={{ display:'flex', gap:8 }}>
+                <input
+                  placeholder="เชิญด้วย userId"
+                  value={inviteText}
+                  onChange={e=>setInviteText(e.target.value)}
+                  style={{...inp, flex:1}}
+                />
+                <button onClick={inviteMember} style={btn}>Invite</button>
+              </div>
+            ) : (
+              <div style={{ fontSize:12, opacity:.7, marginBottom:8 }}>
+                คุณเป็นสมาชิกของโปรเจกต์นี้ (สิทธิ์อ่านรายชื่อเท่านั้น)
+              </div>
+            )}
+
+            <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
+              {(members ?? []).length > 0 ? (members ?? []).map(m => {
+                const uid = m.user?.id || m.userId;
+                const uname = m.user?.name || '(no name)';
+                const uemail = m.user?.email || '';
+                const removable = (isOwner || isAdmin) && uid !== ownerId; // กันไม่ให้ลบเจ้าของเอง
+                return (
+                  <li
+                    key={uid || '(no id)'}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, padding:'6px 8px', border:'1px solid #1f2a3a', borderRadius:10, marginBottom:6 }}
+                  >
+                    <div>
+                      <div style={{ fontWeight:600 }}>
+                        {uname} <span style={{opacity:.6, fontSize:12}}>· {uid}</span>
+                        {uid === ownerId && <span style={{marginLeft:6, fontSize:12, opacity:.8}}>(owner)</span>}
+                      </div>
+                      <div style={{ opacity:.7, fontSize:12 }}>{uemail}</div>
+                    </div>
+
+                    {/* ปุ่ม Remove เฉพาะ owner / admin */}
+                    {removable ? (
+                      <button
+                        onClick={()=>removeMember(uid)}
+                        style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'6px 10px' }}
+                        title="ลบออกจากโปรเจกต์"
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <div style={{ fontSize:12, opacity:.5 }} />
+                    )}
+                  </li>
+                );
+              }) : <div style={{ opacity:.7 }}>No members.</div>}
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Tasks */}

@@ -1,95 +1,103 @@
 'use client';
 
 import useSWR from 'swr';
-import { apiGet, apiPatch, apiDelete } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { API, swrFetcher, apiPatch, apiDelete } from '@/lib/api';
 
-const fetcher = (url) => apiGet(url.replace(/^.*(?=\/admin)/,'')); // for SWR key
+const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };
+const inp  = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'8px 10px', borderRadius:8 };
 
 export default function AdminPage() {
   const router = useRouter();
-  const { data, mutate } = useSWR('/admin/users', fetcher);
-  const [me, setMe] = useState(null);
 
-  useEffect(() => {
-    apiGet('/auth/me').then(r=>{
-      setMe(r.user);
-      if (r.user?.role !== 'ADMIN') router.replace('/workspace');
-    }).catch(()=> router.replace('/login'));
-  }, [router]);
+  // โหลด me เพื่อ guard หน้า
+  const { data: meResp, error: meErr } = useSWR(`${API}/auth/me`, swrFetcher);
+  const me = meResp?.user || meResp;
+  const isAdmin = (me?.role || '').toString().toUpperCase() === 'ADMIN';
 
-  if (!me) return null;
+  // ถ้าไม่ใช่ admin ให้เด้งกลับ workspace
+  if (meResp && !isAdmin) {
+    if (typeof window !== 'undefined') router.replace('/workspace');
+    return <div style={{padding:20}}>Forbidden</div>;
+  }
 
-  const onNameChange = async (id, name) => {
-    await apiPatch(`/admin/users/${id}`, { name });
-    await mutate();
-  };
-  const onRoleChange = async (id, role) => {
+  // โหลด users
+  const { data, mutate } = useSWR(`${API}/admin/users`, swrFetcher);
+  const users = data?.items || [];
+
+  const onChangeRole = async (id, role) => {
     await apiPatch(`/admin/users/${id}`, { role });
-    await mutate();
+    mutate();
   };
+
+  const onChangeName = async (id, name) => {
+    await apiPatch(`/admin/users/${id}`, { name });
+    mutate();
+  };
+
   const onDelete = async (id) => {
-    if (!confirm('Delete this user?')) return;
+    if (!confirm('ลบผู้ใช้นี้?')) return;
     await apiDelete(`/admin/users/${id}`);
-    await mutate();
+    mutate();
   };
 
   return (
-    <div style={{padding:16}}>
-      <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12}}>
-        <div style={{fontWeight:700}}>Admin · User Management</div>
-        <a href="/workspace" style={link}>Back to Workspace</a>
+    <div style={{ padding: 16 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+        <h2 style={{ margin:0 }}>Admin · Users</h2>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={()=>router.push('/workspace')} style={btn}>← Back</button>
+        </div>
       </div>
 
-      <div style={{border:'1px solid #1e293b', borderRadius:10}}>
-        <table style={{width:'100%', borderCollapse:'collapse'}}>
+      {!data ? (
+        <div>Loading…</div>
+      ) : (
+        <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
-            <tr style={trHead}>
+            <tr>
               <th style={th}>ID</th>
               <th style={th}>Email</th>
               <th style={th}>Name</th>
               <th style={th}>Role</th>
-              <th style={th}>Created</th>
               <th style={th}></th>
             </tr>
           </thead>
           <tbody>
-            {data?.items?.map(u=>(
-              <tr key={u.id} style={trBody}>
+            {users.map(u=>(
+              <tr key={u.id}>
                 <td style={tdMono}>{u.id}</td>
                 <td style={td}>{u.email}</td>
                 <td style={td}>
                   <input
                     defaultValue={u.name || ''}
-                    onBlur={e=> onNameChange(u.id, e.target.value)}
-                    style={inp}
+                    onBlur={(e)=> onChangeName(u.id, e.target.value)}
+                    style={{...inp, width:'100%'}}
                   />
                 </td>
                 <td style={td}>
-                  <select defaultValue={u.role} onChange={e=> onRoleChange(u.id, e.target.value)} style={inp}>
+                  <select
+                    defaultValue={(u.role || '').toUpperCase()}
+                    onChange={(e)=> onChangeRole(u.id, e.target.value)}
+                    style={inp}
+                  >
                     <option value="USER">USER</option>
                     <option value="ADMIN">ADMIN</option>
                   </select>
                 </td>
-                <td style={td}>{new Date(u.createdAt).toLocaleString()}</td>
-                <td style={td}>
-                  <button onClick={()=>onDelete(u.id)} style={btnDanger}>Delete</button>
+                <td style={tdRight}>
+                  <button onClick={()=>onDelete(u.id)} style={{...btn, background:'#7f1d1d', border:'1px solid #b91c1c'}}>Delete</button>
                 </td>
               </tr>
-            )) || null}
+            ))}
           </tbody>
         </table>
-      </div>
+      )}
     </div>
   );
 }
 
-const link = { color:'#93c5fd', textDecoration:'none' };
-const trHead = { background:'#0f172a' };
-const trBody = { borderTop:'1px solid #1f2a3a' };
-const th = { textAlign:'left', padding:'10px 12px', fontWeight:700 };
-const td = { padding:'8px 12px' };
-const tdMono = { padding:'8px 12px', fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize:12 };
-const inp = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'6px 8px', borderRadius:8 };
-const btnDanger = { background:'#7f1d1d', border:'1px solid #b91c1c', color:'#fff', padding:'6px 10px', borderRadius:8, cursor:'pointer' };
+const th = { textAlign:'left', borderBottom:'1px solid #1e293b', padding:'8px 6px', fontWeight:600 };
+const td = { borderBottom:'1px solid #1e293b', padding:'8px 6px' };
+const tdMono = { ...td, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize:12, opacity:.9 };
+const tdRight = { ...td, textAlign:'right' };
