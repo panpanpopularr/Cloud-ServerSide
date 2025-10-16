@@ -1,5 +1,18 @@
-// web/app/workspace/layout.jsx
+'use client';
+
+import { SWRConfig } from 'swr';
+
 export default function WorkspaceLayout({ children }) {
-  // ไม่ต้องมี header ซ้ำที่นี่แล้ว ใช้ header จาก app/layout.jsx อย่างเดียว
-  return <>{children}</>;
+  return (
+    <SWRConfig
+      value={{
+        revalidateOnFocus: true,     // ✅ refresh data ทุกครั้งเมื่อกลับมาโฟกัสหน้า
+        revalidateOnReconnect: true, // ✅ refresh เมื่อเน็ตกลับมาใหม่
+        dedupingInterval: 2000,      // ✅ ไม่ดึงซ้ำภายใน 2 วินาที
+        provider: () => new Map(),   // ✅ isolate cache ต่อ layout (กัน cache เก่าค้าง)
+      }}
+    >
+      {children}
+    </SWRConfig>
+  );
 }

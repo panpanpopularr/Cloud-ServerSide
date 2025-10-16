@@ -12,17 +12,13 @@ export default function ProfilePage() {
   const [message, setMessage] = useState('');
   const router = useRouter();
 
-  // โหลดข้อมูลผู้ใช้
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(`${API}/users/me`, { credentials: 'include' });
         if (!res.ok) throw new Error('failed');
         const me = await res.json();
-        setUser({
-          name: me.name || '',
-          email: me.email || '',
-        });
+        setUser({ name: me.name || '', email: me.email || '' });
       } catch {
         setMessage('ไม่สามารถโหลดข้อมูลผู้ใช้ได้');
       } finally {
@@ -31,11 +27,9 @@ export default function ProfilePage() {
     })();
   }, []);
 
-  // บันทึกชื่อผู้ใช้
   const handleSubmit = async (e) => {
     e.preventDefault();
     setMessage('');
-
     try {
       const res = await fetch(`${API}/users/me`, {
         method: 'PATCH',
@@ -44,42 +38,41 @@ export default function ProfilePage() {
         body: JSON.stringify({ name: user.name }),
       });
 
-      if (res.ok) {
-        const j = await res.json().catch(() => ({}));
-        if (j?.user) setUser((u) => ({ ...u, name: j.user.name ?? u.name }));
-        setMessage('อัปเดตข้อมูลเรียบร้อยแล้ว!');
-
-        // ✅ 1) Optimistic update ของ /auth/me เพื่อให้ header เปลี่ยนทันที
-        await swrMutate(
-          `${API}/auth/me`,
-          (prev) => {
-            // รองรับทั้งรูปแบบ {user:{...}} หรือเป็น user object ตรงๆ
-            if (!prev) return { user: { name: user.name } };
-            if (prev.user) return { ...prev, user: { ...prev.user, name: user.name } };
-            return { ...prev, name: user.name };
-          },
-          { revalidate: false }
-        );
-
-        // ✅ 2) เคลียร์/รีเฟรช cache ที่เกี่ยวข้องทั้งหมด
-        await Promise.all([
-          swrMutate(`${API}/auth/me`, undefined, { revalidate: true }),
-          swrMutate(`${API}/users/me`, undefined, { revalidate: false }),
-          // เผื่อมีจุดไหนใช้คีย์ /auth/me แบบอื่น
-          swrMutate((key) => typeof key === 'string' && key.endsWith('/auth/me'), undefined, { revalidate: true }),
-        ]);
-      } else {
+      if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setMessage(`เกิดข้อผิดพลาด: ${err?.error || 'ไม่สามารถอัปเดตได้'}`);
+        return;
       }
+
+      const j = await res.json().catch(() => ({}));
+      const newName = j?.user?.name ?? user.name;
+
+      // ✅ อัปเดตแคช /auth/me ทันที ให้ header เปลี่ยน
+      await swrMutate(
+        `${API}/auth/me`,
+        (prev) => {
+          if (!prev) return { user: { name: newName } };
+          if (prev.user) return { ...prev, user: { ...prev.user, name: newName } };
+          return { ...prev, name: newName };
+        },
+        { revalidate: false }
+      );
+
+      // ✅ แล้วค่อย revalidate เพื่อ sync กับ DB ที่ /auth/me (ซึ่งอ่านจาก DB ทุกครั้งแล้ว)
+      await swrMutate(`${API}/auth/me`, undefined, { revalidate: true });
+
+      // (ถ้ามีจุดไหนเรียก /users/me ด้วย SWR ก็รีเฟรชด้วย)
+      await swrMutate(`${API}/users/me`, undefined, { revalidate: false });
+
+      setUser((u) => ({ ...u, name: newName }));
+      setMessage('อัปเดตข้อมูลเรียบร้อยแล้ว!');
     } catch {
       setMessage('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
   };
 
   const goBack = async () => {
-    // เผื่อ cache ยังไม่รีเฟรช ให้สั่งอีกที แล้วค่อยกลับ
-    await swrMutate(`${API}/auth/me`);
+    await swrMutate(`${API}/auth/me`, undefined, { revalidate: true });
     router.push('/workspace');
   };
 
@@ -109,11 +102,7 @@ export default function ProfilePage() {
 
           <div>
             <label style={label}>อีเมล</label>
-            <input
-              value={user.email}
-              disabled
-              style={{ ...inp, opacity: 0.6, cursor: 'not-allowed' }}
-            />
+            <input value={user.email} disabled style={{ ...inp, opacity: 0.6, cursor: 'not-allowed' }} />
           </div>
 
           {message && (
@@ -146,43 +135,8 @@ export default function ProfilePage() {
 }
 
 /* ---- Styles ---- */
-const center = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-};
-
-const card = {
-  background: '#0f1720',
-  color: '#e6edf3',
-  padding: 24,
-  border: '1px solid #1e293b',
-  borderRadius: 12,
-  width: '100%',
-  maxWidth: 480,
-};
-
-const inp = {
-  width: '100%',
-  padding: '8px 10px',
-  background: '#0b1320',
-  border: '1px solid #1e2a3a',
-  borderRadius: 8,
-  color: '#e6edf3',
-};
-
-const btn = {
-  background: '#1f3a5f',
-  border: '1px solid #294766',
-  color: '#e6edf3',
-  padding: '10px 12px',
-  borderRadius: 10,
-  cursor: 'pointer',
-};
-
-const label = {
-  display: 'block',
-  marginBottom: 4,
-  fontSize: 14,
-  fontWeight: 500,
-};
+const center = { display: 'flex', alignItems: 'center', justifyContent: 'center' };
+const card = { background: '#0f1720', color: '#e6edf3', padding: 24, border: '1px solid #1e293b', borderRadius: 12, width: '100%', maxWidth: 480 };
+const inp = { width: '100%', padding: '8px 10px', background: '#0b1320', border: '1px solid #1e2a3a', borderRadius: 8, color: '#e6edf3' };
+const btn = { background: '#1f3a5f', border: '1px solid #294766', color: '#e6edf3', padding: '10px 12px', borderRadius: 10, cursor: 'pointer' };
+const label = { display: 'block', marginBottom: 4, fontSize: 14, fontWeight: 500 };

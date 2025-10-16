@@ -6,7 +6,8 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
-import session from 'express-session';
+// ไม่ใช้ session แล้ว (คุกกี้ JWT พอ)
+// import session from 'express-session';
 import passport from 'passport';
 
 import './lib/passport.js';
@@ -27,37 +28,39 @@ const __dirname = path.dirname(__filename);
 
 const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 const PORT = process.env.PORT || 4000;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_secret_change_me';
+// const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_secret_change_me';
 
-// CORS (local)
+// ===== CORS config =====
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || FRONTEND)
   .split(',')
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
-const IS_CROSS_SITE = false; // local
+
+// เผื่อเปิดผ่าน cloudflared
+const isAllowed = (origin) => {
+  if (!origin) return true; // same-site / curl
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin)) return true;
+  if (/^https:\/\/.+\.trycloudflare\.com$/.test(origin)) return true;
+  return false;
+};
 
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', 1); // เผื่ออยู่หลัง Cloudflare/Proxy
 
 // ===== CORS =====
 app.use(
   cors({
     origin(origin, cb) {
-      if (!origin) return cb(null, true);
-      const ok =
-        ALLOWED_ORIGINS.includes(origin) ||
-        /^http:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin);
-      cb(null, ok);
+      cb(null, isAllowed(origin));
     },
     credentials: true,
   })
 );
+// เติม header ให้แน่ใจทุกกรณี
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const allow =
-    (origin && (ALLOWED_ORIGINS.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin)))
-      ? origin
-      : (ALLOWED_ORIGINS[0] || FRONTEND);
+  const allow = isAllowed(origin) ? origin : (ALLOWED_ORIGINS[0] || FRONTEND);
   res.setHeader('Access-Control-Allow-Origin', allow);
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
@@ -71,10 +74,12 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
-// แนบ user จาก JWT cookie ให้ทุก request (อย่าใส่ซ้ำ)
+// แนบ user จาก JWT cookie ให้ทุก request
 app.use(attachUser);
 
-// (ถ้าไม่ได้ใช้ session/passport ก็เอาบล็อกนี้ออกได้)
+// ✅ ใช้ Google OAuth แบบไม่มี session → ต้อง initialize แต่ไม่ต้อง session()
+app.use(passport.initialize());
+// (ไม่ใช้ session แล้ว)
 // app.use(
 //   session({
 //     name: 'connect.sid',
@@ -84,7 +89,6 @@ app.use(attachUser);
 //     cookie: { httpOnly: true, sameSite: 'lax', secure: false, maxAge: 1000*60*60*24*7, path: '/' },
 //   })
 // );
-// app.use(passport.initialize());
 // app.use(passport.session());
 
 // ===== static =====
@@ -103,7 +107,7 @@ app.use(activityRoutes);
 app.use(memberRoutes);
 app.use(userRoutes);
 
-// (ออปชัน) รองรับทั้ง root และ /api
+// (ออปชัน) เผื่อมี client เรียกผ่าน /api/*
 app.use('/api', authRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', projectRoutes);
@@ -123,6 +127,6 @@ initSocket(server, { corsOrigin: ALLOWED_ORIGINS });
 server.listen(PORT, async () => {
   await ensureAdminSeed();
   console.log(`🚀 API running on http://localhost:${PORT}`);
-  console.log(`CORS allowed: ${ALLOWED_ORIGINS.join(', ')}`);
-  console.log(`Cross-site mode: OFF (SameSite=Lax)`);
+  console.log(`CORS allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
+  console.log(`Trust proxy: ON`);
 });

@@ -1,6 +1,6 @@
 // web/app/workspace/page.jsx
 'use client';
-
+import { mutate as swrMutate } from 'swr';
 import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,15 +9,15 @@ import { io } from 'socket.io-client';
 import { API, apiPost, apiPatch, apiDelete, swrFetcher } from '@/lib/api';
 
 const STATUS = [
-  { code: 'ACTIVE',     label: 'กำลังทำ' },
+  { code: 'ACTIVE', label: 'กำลังทำ' },
   { code: 'UNASSIGNED', label: 'ยังไม่มอบหมาย' },
-  { code: 'CANCELED',   label: 'ยกเลิก' },
-  { code: 'REVIEW',     label: 'กำลังตรวจ' },
-  { code: 'DONE',       label: 'เสร็จแล้ว' },
+  { code: 'CANCELED', label: 'ยกเลิก' },
+  { code: 'REVIEW', label: 'กำลังตรวจ' },
+  { code: 'DONE', label: 'เสร็จแล้ว' },
 ];
 const DEFAULT_STATUS_CODE = 'UNASSIGNED';
 const labelOf = (code) =>
-  ({ ACTIVE:'กำลังทำ', UNASSIGNED:'ยังไม่มอบหมาย', CANCELED:'ยกเลิก', REVIEW:'กำลังตรวจ', DONE:'เสร็จแล้ว' }[code]) || code;
+  ({ ACTIVE: 'กำลังทำ', UNASSIGNED: 'ยังไม่มอบหมาย', CANCELED: 'ยกเลิก', REVIEW: 'กำลังตรวจ', DONE: 'เสร็จแล้ว' }[code]) || code;
 
 function formatDateTime(ts) {
   const d = new Date(ts);
@@ -103,9 +103,9 @@ export default function Page() {
 
     const Row = ({ title, children }) => (
       <>
-        <div style={{fontWeight:700}}>{title}</div>
+        <div style={{ fontWeight: 700 }}>{title}</div>
         {children}
-        <div style={{fontSize:12, opacity:.7}}>โดย {by} · {date} {time}</div>
+        <div style={{ fontSize: 12, opacity: .7 }}>โดย {by} · {date} {time}</div>
       </>
     );
 
@@ -143,7 +143,7 @@ export default function Page() {
       return <Row title="Remove member"><div>userId: {p.userId}</div></Row>;
 
     return <Row title={a.type}>
-      <pre style={{margin:0,fontSize:12,opacity:.85,whiteSpace:'pre-wrap'}}>{JSON.stringify(a.payload,null,2)}</pre>
+      <pre style={{ margin: 0, fontSize: 12, opacity: .85, whiteSpace: 'pre-wrap' }}>{JSON.stringify(a.payload, null, 2)}</pre>
     </Row>;
   };
 
@@ -166,13 +166,13 @@ export default function Page() {
   const deleteProject = async (id) => {
     if (!confirm('ยืนยันลบโปรเจกต์นี้? งาน ไฟล์ และกิจกรรมที่เกี่ยวข้องจะถูกลบถาวร')) return;
     const prev = projects ?? [];
-    await refetchProjects(prev.filter(p => p.id !== id), { revalidate:false });
+    await refetchProjects(prev.filter(p => p.id !== id), { revalidate: false });
     try {
       await apiDelete(`/projects/${id}`);
       if (selected === id) setSelected(null);
       await Promise.all([refetchProjects(), refetchTasks(), refetchFiles(), refetchActivity(), refetchMembers()]);
     } catch (e) {
-      await refetchProjects(prev, { revalidate:false });
+      await refetchProjects(prev, { revalidate: false });
       alert('ลบโปรเจกต์ไม่สำเร็จ: ' + e.message);
     }
   };
@@ -224,7 +224,7 @@ export default function Page() {
     if (!selected || !fileRef.current?.files?.[0]) return;
     const fd = new FormData(); fd.append('file', fileRef.current.files[0]);
     try {
-      const res = await fetch(`${API}/projects/${selected}/files/upload`, { method:'POST', credentials:'include', body: fd });
+      const res = await fetch(`${API}/projects/${selected}/files/upload`, { method: 'POST', credentials: 'include', body: fd });
       if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
       fileRef.current.value = '';
       await refetchFiles(); await refetchActivity();
@@ -253,108 +253,116 @@ export default function Page() {
   };
 
   // logout
-  const onLogout = async () => {
-    try { await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'include' }); } catch {}
-    router.replace('/login');
-  };
+const onLogout = async () => {
+  try {
+    await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'include' });
+  } catch {}
+  // เคลียร์แคช me ใน SWR ทิ้ง (กัน state เก่าเด้งกลับ)
+  await swrMutate(`${API}/auth/me`, { user: null }, { revalidate: false });
+
+  // hard redirect + reload หนึ่งทีเพื่อแน่ใจว่าไม่มี state ค้าง
+  window.location.replace('/login');
+  // ถ้าบาง browser ยังมี state ค้าง ลองเสริม:
+  // window.location.reload();
+};
 
   if (meLoading) return <div style={{ padding: 16 }}>Loading…</div>;
 
   return (
-    <div style={{ display:'grid', gridTemplateColumns:'340px 1fr 380px', gap:16 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '340px 1fr 380px', gap: 16 }}>
       {/* Header */}
-      <div style={{ gridColumn:'1 / -1', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <div style={{ fontWeight:600 }}>Teamulate</div>
-        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-          <span style={{ opacity:.8 }}>{me ? `${me.name || 'User'} · ${me.id}` : '—'}</span>
-          <Link href="/profile" style={{ ...btn, textDecoration:'none' }}>Profile</Link>
+      <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontWeight: 600 }}>Teamulate</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ opacity: .8 }}>{me ? `${me.name || 'User'} · ${me.id}` : '—'}</span>
+          <Link href="/profile" style={{ ...btn, textDecoration: 'none' }}>Profile</Link>
           <button onClick={onLogout} style={btn}>Logout</button>
         </div>
       </div>
 
       {/* Projects + Members */}
       <div style={card}>
-        <h3 style={{ marginTop:0 }}>Projects</h3>
+        <h3 style={{ marginTop: 0 }}>Projects</h3>
         <div>
-          <input placeholder="Name" value={pname} onChange={e=>setPname(e.target.value)} style={inp} />
-          <input placeholder="Description" value={pdesc} onChange={e=>setPdesc(e.target.value)} style={inp} />
+          <input placeholder="Name" value={pname} onChange={e => setPname(e.target.value)} style={inp} />
+          <input placeholder="Description" value={pdesc} onChange={e => setPdesc(e.target.value)} style={inp} />
           <button onClick={createProject} style={btn}>Create</button>
         </div>
 
-        <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-          {projects.map(p=>(
-            <li key={p.id} style={{ marginBottom:8 }}>
-              <div style={{ display:'flex', gap:8 }}>
+        <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
+          {projects.map(p => (
+            <li key={p.id} style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <button
-                  style={{ ...btn, flex:1, background:selected===p.id?'#2563eb':'#122338' }}
-                  onClick={()=>setSelected(p.id)}
+                  style={{ ...btn, flex: 1, background: selected === p.id ? '#2563eb' : '#122338' }}
+                  onClick={() => setSelected(p.id)}
                 >
                   {p.name}
                 </button>
                 {(me?.id === p.ownerId) && (
-                  <button onClick={() => deleteProject(p.id)} style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>✕</button>
+                  <button onClick={() => deleteProject(p.id)} style={{ ...btn, background: '#7f1d1d', border: '1px solid #b91c1c', padding: '8px 10px' }}>✕</button>
                 )}
               </div>
             </li>
           ))}
-          {projects.length === 0 && <div style={{ opacity:.7 }}>No projects.</div>}
+          {projects.length === 0 && <div style={{ opacity: .7 }}>No projects.</div>}
         </ul>
 
         {selected && (
-          <div style={{ marginTop:16 }}>
-            <h4 style={{ margin:'16px 0 8px' }}>Members</h4>
+          <div style={{ marginTop: 16 }}>
+            <h4 style={{ margin: '16px 0 8px' }}>Members</h4>
 
             {isOwner ? (
-              <div style={{ display:'flex', gap:8 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <input
                   placeholder="เชิญด้วย userId"
                   value={inviteText}
-                  onChange={e=>setInviteText(e.target.value)}
-                  style={{...inp, flex:1}}
+                  onChange={e => setInviteText(e.target.value)}
+                  style={{ ...inp, flex: 1 }}
                 />
                 <button onClick={inviteMember} style={btn}>Invite</button>
               </div>
             ) : (
-              <div style={{ fontSize:12, opacity:.7, marginBottom:8 }}>
+              <div style={{ fontSize: 12, opacity: .7, marginBottom: 8 }}>
                 คุณเป็นสมาชิกของโปรเจกต์นี้ (สิทธิ์อ่านรายชื่อเท่านั้น)
               </div>
             )}
 
-            <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
+            <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
               {members.length > 0 ? members.map(m => {
                 const uid = m.user?.id || m.userId;
                 const uname = m.user?.name || '(no name)';
                 const uemail = m.user?.email || '';
                 const removable = (isOwner) && uid !== ownerId;
                 return (
-                  <li key={uid || '(no id)'} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8, padding:'6px 8px', border:'1px solid #1f2a3a', borderRadius:10, marginBottom:6 }}>
+                  <li key={uid || '(no id)'} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', border: '1px solid #1f2a3a', borderRadius: 10, marginBottom: 6 }}>
                     <div>
-                      <div style={{ fontWeight:600 }}>
-                        {uname} <span style={{opacity:.6, fontSize:12}}>· {uid}</span>
-                        {uid === ownerId && <span style={{marginLeft:6, fontSize:12, opacity:.8}}>(owner)</span>}
+                      <div style={{ fontWeight: 600 }}>
+                        {uname} <span style={{ opacity: .6, fontSize: 12 }}>· {uid}</span>
+                        {uid === ownerId && <span style={{ marginLeft: 6, fontSize: 12, opacity: .8 }}>(owner)</span>}
                       </div>
-                      <div style={{ opacity:.7, fontSize:12 }}>{uemail}</div>
+                      <div style={{ opacity: .7, fontSize: 12 }}>{uemail}</div>
                     </div>
                     {removable ? (
-                      <button onClick={()=>removeMember(uid)} style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'6px 10px' }}>Remove</button>
-                    ) : <div style={{ fontSize:12, opacity:.5 }} />}
+                      <button onClick={() => removeMember(uid)} style={{ ...btn, background: '#7f1d1d', border: '1px solid #b91c1c', padding: '6px 10px' }}>Remove</button>
+                    ) : <div style={{ fontSize: 12, opacity: .5 }} />}
                   </li>
                 );
-              }) : <div style={{ opacity:.7 }}>No members.</div>}
+              }) : <div style={{ opacity: .7 }}>No members.</div>}
             </ul>
           </div>
         )}
       </div>
 
       {/* Tasks */}
-      <div style={{ display:'grid', gap:16 }}>
+      <div style={{ display: 'grid', gap: 16 }}>
         <div style={card}>
-          <h3 style={{ marginTop:0 }}>Tasks</h3>
-          {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
+          <h3 style={{ marginTop: 0 }}>Tasks</h3>
+          {!selected && <div style={{ opacity: .7 }}>Select a project.</div>}
           {selected && (
             <>
-              <div style={{ display:'flex', gap:8 }}>
-                <input id="taskTitle" placeholder="Task title" style={{...inp, flex:1}} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input id="taskTitle" placeholder="Task title" style={{ ...inp, flex: 1 }} />
                 <input id="taskDeadline" type="date" style={inp} />
                 <select id="taskStatus" defaultValue="UNASSIGNED" style={inp}>
                   {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
@@ -362,28 +370,28 @@ export default function Page() {
                 <button onClick={createTask} style={btn}>Add</button>
               </div>
 
-              {msg && <div style={{ marginTop:8, fontSize:12, opacity:.8 }}>{msg}</div>}
+              {msg && <div style={{ marginTop: 8, fontSize: 12, opacity: .8 }}>{msg}</div>}
 
-              <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-                {tasks.length > 0 ? tasks.map(t=>(
-                  <li key={t.id} style={{ padding:8, border:'1px solid #1f2a3a', borderRadius:10, marginBottom:8 }}>
-                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+              <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
+                {tasks.length > 0 ? tasks.map(t => (
+                  <li key={t.id} style={{ padding: 8, border: '1px solid #1f2a3a', borderRadius: 10, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                       <div>
-                        <div style={{ fontWeight:600 }}>
-                          <Link href={`/tasks/${t.id}`} style={{ color:'#93c5fd', textDecoration:'none' }}>{t.title}</Link>
+                        <div style={{ fontWeight: 600 }}>
+                          <Link href={`/tasks/${t.id}`} style={{ color: '#93c5fd', textDecoration: 'none' }}>{t.title}</Link>
                         </div>
-                        <div style={{ fontSize:12, opacity:.7 }}>
+                        <div style={{ fontSize: 12, opacity: .7 }}>
                           สถานะ: {labelOf(t.status)} · กำหนดส่ง {t.deadline || '—'} · ผู้รับผิดชอบ: {t.assignee?.name || t.assignee?.email || '—'}
                         </div>
                       </div>
 
-                      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         {isOwner && (
                           <select
                             value={t.assigneeId || ''}
-                            onChange={e=>assignTask(t.id, e.target.value || null)}
+                            onChange={e => assignTask(t.id, e.target.value || null)}
                             disabled={savingId === t.id}
-                            style={{ ...inp, minWidth:180, opacity: savingId === t.id ? 0.6 : 1 }}
+                            style={{ ...inp, minWidth: 180, opacity: savingId === t.id ? 0.6 : 1 }}
                           >
                             <option value="">— ไม่มอบหมาย —</option>
                             {members.map(m => (
@@ -394,14 +402,14 @@ export default function Page() {
                           </select>
                         )}
 
-                        <select value={t.status} onChange={(e)=> changeTaskStatus(t.id, e.target.value)} disabled={savingId === t.id} style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1 }}>
+                        <select value={t.status} onChange={(e) => changeTaskStatus(t.id, e.target.value)} disabled={savingId === t.id} style={{ ...inp, opacity: savingId === t.id ? 0.6 : 1 }}>
                           {STATUS.map(s => <option key={s.code} value={s.code}>{s.label}</option>)}
                         </select>
-                        <button onClick={()=>deleteTask(t.id)} title="ลบงานนี้" style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'6px 10px' }}>🗑</button>
+                        <button onClick={() => deleteTask(t.id)} title="ลบงานนี้" style={{ ...btn, background: '#7f1d1d', border: '1px solid #b91c1c', padding: '6px 10px' }}>🗑</button>
                       </div>
                     </div>
                   </li>
-                )) : <div style={{ opacity:.7 }}>No tasks.</div>}
+                )) : <div style={{ opacity: .7 }}>No tasks.</div>}
               </ul>
             </>
           )}
@@ -409,27 +417,27 @@ export default function Page() {
 
         {/* Files */}
         <div style={card}>
-          <h3 style={{ marginTop:0 }}>Files</h3>
-          {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
+          <h3 style={{ marginTop: 0 }}>Files</h3>
+          {!selected && <div style={{ opacity: .7 }}>Select a project.</div>}
           {selected && (
             <>
-              <div style={{ display:'flex', gap:8 }}>
-                <input type="file" ref={fileRef} style={{ flex:1 }} />
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input type="file" ref={fileRef} style={{ flex: 1 }} />
                 <button onClick={uploadFile} style={btn}>Upload</button>
               </div>
-              <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-                {files.map(f=>(
-                  <li key={f.id} style={{ padding:8, border: "1px solid #1f2a3a", borderRadius:10, marginBottom:8, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
+              <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
+                {files.map(f => (
+                  <li key={f.id} style={{ padding: 8, border: "1px solid #1f2a3a", borderRadius: 10, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                     <div>
-                      <a href={`${API}/uploads/${f.projectId}/${f.filename || f.s3Key || ''}`} target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}>
+                      <a href={`${API}/uploads/${f.projectId}/${f.filename || f.s3Key || ''}`} target="_blank" rel="noreferrer" style={{ color: '#93c5fd' }}>
                         {f.originalname || f.name || 'file'}
                       </a>
-                      <div style={{ fontSize:12, opacity:.7 }}>{(f.size/1024).toFixed(1)} KB</div>
+                      <div style={{ fontSize: 12, opacity: .7 }}>{(f.size / 1024).toFixed(1)} KB</div>
                     </div>
-                    <button onClick={()=>deleteFile(f.id)} title="Delete" style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>🗑</button>
+                    <button onClick={() => deleteFile(f.id)} title="Delete" style={{ ...btn, background: '#7f1d1d', border: '1px solid #b91c1c', padding: '8px 10px' }}>🗑</button>
                   </li>
                 ))}
-                {files.length === 0 && <div style={{ opacity:.7 }}>No files.</div>}
+                {files.length === 0 && <div style={{ opacity: .7 }}>No files.</div>}
               </ul>
             </>
           )}
@@ -438,17 +446,17 @@ export default function Page() {
 
       {/* Activity */}
       <div style={{ ...card, maxHeight: 'calc(100vh - 140px)' }}>
-        <h3 style={{ marginTop:0 }}>Activity</h3>
-        {!selected && <div style={{ opacity:.7 }}>Select a project.</div>}
+        <h3 style={{ marginTop: 0 }}>Activity</h3>
+        {!selected && <div style={{ opacity: .7 }}>Select a project.</div>}
         {selected && (
-          <div style={{ overflowY:'auto', maxHeight:'calc(100vh - 180px)' }}>
-            <ul style={{ listStyle:'none', padding:0 }}>
-              {(activity?.items ?? []).map(a=>(
-                <li key={a.id} style={{ padding:'6px 0', borderBottom:'1px solid #1f2a3a' }}>
+          <div style={{ overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {(activity?.items ?? []).map(a => (
+                <li key={a.id} style={{ padding: '6px 0', borderBottom: '1px solid #1f2a3a' }}>
                   {renderActivity(a)}
                 </li>
               ))}
-              {!activity?.items?.length && <div style={{ opacity:.7 }}>No activity.</div>}
+              {!activity?.items?.length && <div style={{ opacity: .7 }}>No activity.</div>}
             </ul>
           </div>
         )}
@@ -457,6 +465,6 @@ export default function Page() {
   );
 }
 
-const card = { padding:12, background:'#0f1720', border:'1px solid #1e293b', borderRadius:12 };
-const btn  = { background:'#1f3a5f', border:'1px solid #294766', color:'#e6edf3', padding:'8px 12px', borderRadius:10, cursor:'pointer' };
-const inp  = { background:'#0b1320', border:'1px solid #1e2a3a', color:'#e6edf3', padding:'8px 10px', borderRadius:8 };
+const card = { padding: 12, background: '#0f1720', border: '1px solid #1e293b', borderRadius: 12 };
+const btn = { background: '#1f3a5f', border: '1px solid #294766', color: '#e6edf3', padding: '8px 12px', borderRadius: 10, cursor: 'pointer' };
+const inp = { background: '#0b1320', border: '1px solid #1e2a3a', color: '#e6edf3', padding: '8px 10px', borderRadius: 8 };

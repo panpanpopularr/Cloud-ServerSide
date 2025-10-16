@@ -1,4 +1,3 @@
-// web/lib/api.js
 export const API =
   (process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')) || 'http://localhost:4000';
 
@@ -17,6 +16,7 @@ async function request(method, path, body) {
     method,
     credentials: 'include',
     headers: {},
+    cache: 'no-store',       // ⬅️ กัน cache
   };
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
@@ -24,28 +24,32 @@ async function request(method, path, body) {
   }
   const r = await fetch(url, init);
   const data = await parseResponse(r);
-  if (!r.ok) {
-    const msg = data?.error || data?.raw || `HTTP ${r.status}`;
-    throw new Error(msg);
-  }
+  if (!r.ok) throw new Error(data?.error || data?.raw || `HTTP ${r.status}`);
   return data;
 }
 
-/* ===== Public helpers used across the app ===== */
-export async function apiGet(path)    { return request('GET',    path); }
-export async function apiPost(path,b) { return request('POST',   path, b); }
-export async function apiPatch(path,b){ return request('PATCH',  path, b); }
-export async function apiPut(path,b)  { return request('PUT',    path, b); }
-export async function apiDelete(path) { return request('DELETE', path); }
+export async function apiGet(path)     { return request('GET',    path); }
+export async function apiPost(path, b) { return request('POST',   path, b); }
+export async function apiPatch(path,b) { return request('PATCH',  path, b); }
+export async function apiPut(path,  b) { return request('PUT',    path, b); }
+export async function apiDelete(path)  { return request('DELETE', path); }
 
-/* SWR fetcher (keeps cookies) */
+// SWR fetcher (ปิด cache)
 export const swrFetcher = (url) =>
-  fetch(url, { credentials: 'include' })
+  fetch(url, { credentials: 'include', cache: 'no-store' })
     .then(async (r) => {
       const data = await parseResponse(r);
       if (!r.ok) throw new Error(data?.error || data?.raw || `HTTP ${r.status}`);
       return data;
     });
 
-/* OAuth helper */
 export function googleLoginUrl() { return `${API}/auth/google`; }
+
+import { mutate as swrMutate } from 'swr';
+export async function apiLogoutAndClear() {
+  try { await request('POST', '/auth/logout'); } catch {}
+  // เคลียร์ cache /auth/me ให้แน่ใจว่า header เปลี่ยนทันที
+  await swrMutate(`${API}/auth/me`, { user: null }, { revalidate: false });
+  // กันคีย์อื่นที่ลงท้าย /auth/me
+  await swrMutate((key) => typeof key === 'string' && key.endsWith('/auth/me'), { user: null }, { revalidate: false });
+}

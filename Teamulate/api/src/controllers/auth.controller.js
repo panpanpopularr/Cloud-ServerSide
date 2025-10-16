@@ -1,14 +1,35 @@
-// api/src/controllers/auth.controller.js
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.js';
 import { signUser, setAuthCookie } from '../lib/jwt.js';
+import jwt from 'jsonwebtoken';
 
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+
+/* ------------ helpers ------------ */
+function sendNoStore(res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+}
+function clearAllAuthCookies(res) {
+  const base = { httpOnly: true, sameSite: 'lax', secure: false };
+  // ทั้งชื่อ jwt และ token และทั้ง path / และ /api
+  res.clearCookie('jwt',   { ...base, path: '/'   });
+  res.clearCookie('jwt',   { ...base, path: '/api' });
+  res.clearCookie('token', { ...base, path: '/'   });
+  res.clearCookie('token', { ...base, path: '/api' });
+
+  // กัน edge case บราวเซอร์บางตัว
+  res.cookie('jwt', '',   { ...base, path: '/',   maxAge: 0 });
+  res.cookie('token','',  { ...base, path: '/',   maxAge: 0 });
+}
+
+/* ------------ register ------------ */
 export const register = async (req, res) => {
   try {
     const email = (req.body?.email || '').toLowerCase().trim();
     const name = (req.body?.name || '').trim() || null;
     const password = (req.body?.password || '').toString();
-
     if (!email || !password) return res.status(400).json({ error: 'email_and_password_required' });
 
     const hashed = await bcrypt.hash(password, 10);
@@ -17,8 +38,9 @@ export const register = async (req, res) => {
       select: { id: true, email: true, role: true, name: true },
     });
 
-    const token = signUser(user);
+    const token = signUser(user); // ใส่ id/role/name ใน payload ตาม implement ของคุณ
     setAuthCookie(res, token);
+    sendNoStore(res);
     res.status(201).json({ user });
   } catch (e) {
     if (e.code === 'P2002') return res.status(409).json({ error: 'email_taken' });
@@ -27,6 +49,7 @@ export const register = async (req, res) => {
   }
 };
 
+/* ------------ login ------------ */
 export const login = async (req, res) => {
   try {
     const email = (req.body?.email || '').toLowerCase().trim();
@@ -41,6 +64,7 @@ export const login = async (req, res) => {
     const safe = { id: user.id, email: user.email, role: user.role, name: user.name };
     const token = signUser(safe);
     setAuthCookie(res, token);
+    sendNoStore(res);
     res.json({ user: safe });
   } catch (e) {
     console.error('login error:', e);
@@ -48,28 +72,49 @@ export const login = async (req, res) => {
   }
 };
 
-// ไม่ 401 เพื่อกัน flash ตอน refresh; จะได้ { user: null } ถ้าไม่มี token
+/* ------------ me (no cache) ------------ */
 export const me = async (req, res) => {
+  sendNoStore(res);
   res.json({ user: req.user || null });
 };
 
+/* ------------ logout (ล้างให้หมด) ------------ */
 export const logout = async (_req, res) => {
-  res.clearCookie('jwt', { path: '/' });
+  clearAllAuthCookies(res);
+  sendNoStore(res);
   res.json({ ok: true });
 };
 
-/* Google callback (ไว้กรณีใช้ Google) */
-export const googleCallback = async (req, res) => {
+/* ------------ Google OAuth callback / finalize (เดิม) ------------ */
+export async function googleCallback(req, res) {
   try {
-    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
-    if (!req.user) return res.redirect(`${FRONTEND}/login?auth=failed`);
-    const token = signUser(req.user);
-    setAuthCookie(res, token);
-    const role = (req.user.role || '').toLowerCase();
-    return res.redirect(`${FRONTEND}${role === 'admin' ? '/admin' : '/workspace'}?auth=google`);
+    const u = req.user; // จาก passport
+    const token = jwt.sign({ uid: u.id }, JWT_SECRET, { expiresIn: '7d' });
+    const FE = (process.env.FRONTEND_URL || 'http://localhost:3000');
+    return res.redirect(`${FE}/login?auth=google&token=${encodeURIComponent(token)}`);
   } catch (e) {
-    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
-    console.error('google callback error:', e);
-    return res.redirect(`${FRONTEND}/login?auth=error`);
+    console.error('[googleCallback]', e);
+    const FE = (process.env.FRONTEND_URL || 'http://localhost:3000');
+    return res.redirect(`${FE}/login?auth=failed`);
   }
-};
+}
+
+export async function finalizeFromToken(req, res) {
+  try {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'token_required' });
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (!payload?.uid) return res.status(400).json({ error: 'bad_token' });
+
+    const u = await prisma.user.findUnique({ where: { id: payload.uid }, select: { id: true, email: true, role: true, name: true } });
+    if (!u) return res.status(404).json({ error: 'user_not_found' });
+
+    const firstPartyToken = signUser({ id: u.id, email: u.email, role: u.role, name: u.name });
+    setAuthCookie(res, firstPartyToken);
+    sendNoStore(res);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('[finalizeFromToken]', e);
+    return res.status(400).json({ error: 'invalid_token' });
+  }
+}

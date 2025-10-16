@@ -19,40 +19,57 @@ export default function LoginPage() {
     return null;
   }, [sp]);
 
-  // หลังมี session เด้งตาม role
-  async function redirectByRole() {
-    try {
-      const r = await apiGet('/auth/me');
-      const role = (r?.user?.role || '').toString().toLowerCase();
-      if (role === 'admin') router.replace('/admin');
-      else router.replace('/workspace');
-    } catch {
-      // do nothing
-    }
+  /** helper: ชี้เส้นทางตาม role */
+  function goByRole(roleLike) {
+    const role = String(roleLike ?? '')
+      .trim()
+      .toLowerCase();
+
+    // รองรับค่าที่เจอบ่อย
+    const isAdmin =
+      role === 'admin' ||
+      role === 'administrator' ||
+      role === 'superadmin' ||
+      role === 'root' ||
+      role === 'owner';
+
+    router.replace(isAdmin ? '/admin' : '/workspace');
   }
 
+  /** ใช้ตอน refresh หน้า: ถ้ามี session แล้ว ให้เด้งตาม role */
   useEffect(() => {
-    apiGet('/auth/me')
-      .then((r) => {
-        if (r?.user) redirectByRole();
-      })
-      .catch(() => {})
-      .finally(() => setChecking(false));
+    (async () => {
+      try {
+        const r = await apiGet('/auth/me');
+        const role = r?.user?.role ?? r?.role;
+        if (role) goByRole(role);
+      } catch {/* ignore */}
+      finally { setChecking(false); }
+    })();
   }, []); // eslint-disable-line
 
   async function onSubmit(e) {
     e.preventDefault();
     setErr('');
     try {
-      await apiPost('/auth/login', { email, password });
-      await redirectByRole();
+      // ใช้ผลลัพธ์จาก /auth/login ทันที
+      const r = await apiPost('/auth/login', { email, password });
+      const user = r?.user ?? r ?? {};
+      const role = user.role;
+
+      if (role) {
+        goByRole(role);
+      } else {
+        // กันกรณี /auth/login ไม่ส่ง user/role กลับมา
+        const me = await apiGet('/auth/me').catch(() => ({}));
+        goByRole(me?.user?.role ?? me?.role);
+      }
     } catch (e) {
-      setErr(e.message || 'login failed');
+      setErr(e?.message || 'login failed');
     }
   }
 
   function onGoogle() {
-    // ป้องกันกรณีโปรเจกต์เก่ายังไม่มีฟังก์ชัน helper
     const url = (typeof googleLoginUrl === 'function')
       ? googleLoginUrl()
       : `${API}/auth/google`;
