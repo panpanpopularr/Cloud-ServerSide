@@ -31,8 +31,11 @@ export default function Page() {
   const { data: meResp, isLoading: meLoading } = useSWR(`${API}/auth/me`, swrFetcher);
   const me = meResp?.user || meResp;
 
-  // projects / state
-  const { data: projects, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
+  // projects
+  const { data: projectsRaw, mutate: refetchProjects } = useSWR(`${API}/projects`, swrFetcher);
+  // ✅ normalize ให้เป็น array เสมอ
+  const projects = Array.isArray(projectsRaw) ? projectsRaw : (projectsRaw?.items ?? []);
+
   const [pname, setPname] = useState('');
   const [pdesc, setPdesc] = useState('');
   const [selected, setSelected] = useState(null);
@@ -44,24 +47,29 @@ export default function Page() {
   );
   const ownerId =
     selectedProject?.ownerId ||
-    (projects?.find?.((p) => p.id === selected)?.ownerId) ||
+    (projects.find?.((p) => p.id === selected)?.ownerId) ||
     null;
   const isOwner = me?.id && ownerId && me.id === ownerId;
 
-  // tasks / files / activity / members
+  // tasks
   const { data: tasksRaw, mutate: refetchTasks } =
     useSWR(() => (selected ? `${API}/projects/${selected}/tasks` : null), swrFetcher);
   const tasks = Array.isArray(tasksRaw) ? tasksRaw :
     (tasksRaw && Array.isArray(tasksRaw.items) ? tasksRaw.items : []);
 
-  const { data: files, mutate: refetchFiles } =
+  // files
+  const { data: filesRaw, mutate: refetchFiles } =
     useSWR(() => (selected ? `${API}/projects/${selected}/files` : null), swrFetcher);
+  const files = Array.isArray(filesRaw) ? filesRaw : (filesRaw?.items ?? []);
 
+  // activity
   const { data: activity, mutate: refetchActivity } =
     useSWR(() => (selected ? `${API}/projects/${selected}/activity` : null), swrFetcher);
 
-  const { data: members, mutate: refetchMembers } =
+  // members
+  const { data: membersRaw, mutate: refetchMembers } =
     useSWR(() => (selected ? `${API}/projects/${selected}/members` : null), swrFetcher);
+  const members = Array.isArray(membersRaw) ? membersRaw : (membersRaw?.items ?? []);
 
   const fileRef = useRef();
   const [inviteText, setInviteText] = useState('');
@@ -145,7 +153,11 @@ export default function Page() {
     try {
       const proj = await apiPost('/projects', { name: pname, description: pdesc });
       setPname(''); setPdesc('');
-      await refetchProjects(prev => [proj, ...(prev ?? [])], { revalidate: false });
+      // ✅ optimistic update แบบปลอดภัยกับทุก shape
+      await refetchProjects((curr) => {
+        const list = Array.isArray(curr) ? curr : (curr?.items ?? []);
+        return [proj, ...list];
+      }, { revalidate: false });
       setSelected(proj.id);
       await refetchProjects();
     } catch (e) { alert('สร้างโปรเจ็กต์ไม่สำเร็จ: ' + e.message); }
@@ -270,7 +282,7 @@ export default function Page() {
         </div>
 
         <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-          {projects?.map(p=>(
+          {projects.map(p=>(
             <li key={p.id} style={{ marginBottom:8 }}>
               <div style={{ display:'flex', gap:8 }}>
                 <button
@@ -284,7 +296,8 @@ export default function Page() {
                 )}
               </div>
             </li>
-          )) || <div style={{ opacity:.7 }}>No projects.</div>}
+          ))}
+          {projects.length === 0 && <div style={{ opacity:.7 }}>No projects.</div>}
         </ul>
 
         {selected && (
@@ -308,7 +321,7 @@ export default function Page() {
             )}
 
             <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-              {(members ?? []).length > 0 ? (members ?? []).map(m => {
+              {members.length > 0 ? members.map(m => {
                 const uid = m.user?.id || m.userId;
                 const uname = m.user?.name || '(no name)';
                 const uemail = m.user?.email || '';
@@ -373,7 +386,7 @@ export default function Page() {
                             style={{ ...inp, minWidth:180, opacity: savingId === t.id ? 0.6 : 1 }}
                           >
                             <option value="">— ไม่มอบหมาย —</option>
-                            {(members ?? []).map(m => (
+                            {members.map(m => (
                               <option key={m.user?.id || m.userId} value={m.user?.id || m.userId}>
                                 {m.user?.name || m.user?.email || m.userId}
                               </option>
@@ -405,7 +418,7 @@ export default function Page() {
                 <button onClick={uploadFile} style={btn}>Upload</button>
               </div>
               <ul style={{ listStyle:'none', padding:0, marginTop:12 }}>
-                {files?.map(f=>(
+                {files.map(f=>(
                   <li key={f.id} style={{ padding:8, border: "1px solid #1f2a3a", borderRadius:10, marginBottom:8, display:'flex', justifyContent:'space-between', alignItems:'center', gap:12 }}>
                     <div>
                       <a href={`${API}/uploads/${f.projectId}/${f.filename || f.s3Key || ''}`} target="_blank" rel="noreferrer" style={{ color:'#93c5fd' }}>
@@ -415,7 +428,8 @@ export default function Page() {
                     </div>
                     <button onClick={()=>deleteFile(f.id)} title="Delete" style={{ ...btn, background:'#7f1d1d', border:'1px solid #b91c1c', padding:'8px 10px' }}>🗑</button>
                   </li>
-                )) || <div style={{ opacity:.7 }}>No files.</div>}
+                ))}
+                {files.length === 0 && <div style={{ opacity:.7 }}>No files.</div>}
               </ul>
             </>
           )}
@@ -429,11 +443,12 @@ export default function Page() {
         {selected && (
           <div style={{ overflowY:'auto', maxHeight:'calc(100vh - 180px)' }}>
             <ul style={{ listStyle:'none', padding:0 }}>
-              {activity?.items?.map(a=>(
+              {(activity?.items ?? []).map(a=>(
                 <li key={a.id} style={{ padding:'6px 0', borderBottom:'1px solid #1f2a3a' }}>
                   {renderActivity(a)}
                 </li>
-              )) || <div style={{ opacity:.7 }}>No activity.</div>}
+              ))}
+              {!activity?.items?.length && <div style={{ opacity:.7 }}>No activity.</div>}
             </ul>
           </div>
         )}

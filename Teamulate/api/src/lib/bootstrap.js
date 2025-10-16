@@ -12,7 +12,10 @@ export async function ensureAdminSeed() {
   const hash = await bcrypt.hash(password, 10);
   await prisma.user.create({
     data: {
-      email, name, password: hash, role: 'ADMIN',
+      email,
+      name,
+      passwordHash: hash,   // ✅ บันทึกให้ถูกฟิลด์
+      role: 'ADMIN',
     },
   });
 

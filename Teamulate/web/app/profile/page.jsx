@@ -48,9 +48,26 @@ export default function ProfilePage() {
         const j = await res.json().catch(() => ({}));
         if (j?.user) setUser((u) => ({ ...u, name: j.user.name ?? u.name }));
         setMessage('อัปเดตข้อมูลเรียบร้อยแล้ว!');
-        // รีเฟรชแคชให้หัวเว็บ (ที่เรียก /auth/me) เห็นชื่อใหม่ทันที
-        await swrMutate(`${API}/auth/me`);
-        await swrMutate(`${API}/users/me`);
+
+        // ✅ 1) Optimistic update ของ /auth/me เพื่อให้ header เปลี่ยนทันที
+        await swrMutate(
+          `${API}/auth/me`,
+          (prev) => {
+            // รองรับทั้งรูปแบบ {user:{...}} หรือเป็น user object ตรงๆ
+            if (!prev) return { user: { name: user.name } };
+            if (prev.user) return { ...prev, user: { ...prev.user, name: user.name } };
+            return { ...prev, name: user.name };
+          },
+          { revalidate: false }
+        );
+
+        // ✅ 2) เคลียร์/รีเฟรช cache ที่เกี่ยวข้องทั้งหมด
+        await Promise.all([
+          swrMutate(`${API}/auth/me`, undefined, { revalidate: true }),
+          swrMutate(`${API}/users/me`, undefined, { revalidate: false }),
+          // เผื่อมีจุดไหนใช้คีย์ /auth/me แบบอื่น
+          swrMutate((key) => typeof key === 'string' && key.endsWith('/auth/me'), undefined, { revalidate: true }),
+        ]);
       } else {
         const err = await res.json().catch(() => ({}));
         setMessage(`เกิดข้อผิดพลาด: ${err?.error || 'ไม่สามารถอัปเดตได้'}`);
@@ -58,6 +75,12 @@ export default function ProfilePage() {
     } catch {
       setMessage('เกิดข้อผิดพลาดในการเชื่อมต่อ');
     }
+  };
+
+  const goBack = async () => {
+    // เผื่อ cache ยังไม่รีเฟรช ให้สั่งอีกที แล้วค่อยกลับ
+    await swrMutate(`${API}/auth/me`);
+    router.push('/workspace');
   };
 
   if (loading) {
@@ -112,7 +135,7 @@ export default function ProfilePage() {
             <button type="submit" style={{ ...btn, flex: 1, background: '#2563eb' }}>
               บันทึกข้อมูล
             </button>
-            <button type="button" onClick={() => router.push('/workspace')} style={{ ...btn, flex: 1 }}>
+            <button type="button" onClick={goBack} style={{ ...btn, flex: 1 }}>
               กลับ
             </button>
           </div>

@@ -1,75 +1,75 @@
 // api/src/controllers/auth.controller.js
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { UserModel } from '../models/user.model.js';
+import prisma from '../lib/prisma.js';
+import { signUser, setAuthCookie } from '../lib/jwt.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
-const COOKIE_OPTS = {
-  httpOnly: true,
-  sameSite: 'lax',
-  secure: false,          // ถ้า deploy บน HTTPS ให้เปลี่ยนเป็น true
-  path: '/',
-  maxAge: 60 * 60 * 24 * 7, // 7 วัน
+export const register = async (req, res) => {
+  try {
+    const email = (req.body?.email || '').toLowerCase().trim();
+    const name = (req.body?.name || '').trim() || null;
+    const password = (req.body?.password || '').toString();
+
+    if (!email || !password) return res.status(400).json({ error: 'email_and_password_required' });
+
+    const hashed = await bcrypt.hash(password, 10);
+    const user = await prisma.user.create({
+      data: { email, name, password: hashed, role: 'user' },
+      select: { id: true, email: true, role: true, name: true },
+    });
+
+    const token = signUser(user);
+    setAuthCookie(res, token);
+    res.status(201).json({ user });
+  } catch (e) {
+    if (e.code === 'P2002') return res.status(409).json({ error: 'email_taken' });
+    console.error('register error:', e);
+    res.status(500).json({ error: 'server_error' });
+  }
 };
 
-function issueToken(res, user) {
-  const payload = { id: user.id, email: user.email, name: user.name };
-  const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
-  res.cookie('token', token, COOKIE_OPTS);
-  return payload;
-}
+export const login = async (req, res) => {
+  try {
+    const email = (req.body?.email || '').toLowerCase().trim();
+    const password = (req.body?.password || '').toString();
 
-export const AuthController = {
-  register: async (req, res) => {
-    try {
-      const { email, name, password } = req.body || {};
-      if (!email || !password || !name) {
-        return res.status(400).json({ error: 'missing fields' });
-      }
-      const existed = await UserModel.findByEmail(email);
-      if (existed) return res.status(409).json({ error: 'email already used' });
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user || !user.password) return res.status(401).json({ error: 'invalid_credentials' });
 
-      const hash = await bcrypt.hash(password, 10);
-      const user = await UserModel.createWithPassword({
-        email,
-        name,
-        passwordHash: hash,
-      });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
 
-      const profile = issueToken(res, user);
-      res.status(201).json({ user: profile });
-    } catch (e) {
-      console.error('[Auth.register]', e);
-      res.status(500).json({ error: 'register failed' });
-    }
-  },
+    const safe = { id: user.id, email: user.email, role: user.role, name: user.name };
+    const token = signUser(safe);
+    setAuthCookie(res, token);
+    res.json({ user: safe });
+  } catch (e) {
+    console.error('login error:', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+};
 
-  login: async (req, res) => {
-    try {
-      const { email, password } = req.body || {};
-      if (!email || !password) return res.status(400).json({ error: 'missing fields' });
+// ไม่ 401 เพื่อกัน flash ตอน refresh; จะได้ { user: null } ถ้าไม่มี token
+export const me = async (req, res) => {
+  res.json({ user: req.user || null });
+};
 
-      const user = await UserModel.findByEmail(email);
-      if (!user || !user.passwordHash) return res.status(401).json({ error: 'invalid credentials' });
+export const logout = async (_req, res) => {
+  res.clearCookie('jwt', { path: '/' });
+  res.json({ ok: true });
+};
 
-      const ok = await bcrypt.compare(password, user.passwordHash);
-      if (!ok) return res.status(401).json({ error: 'invalid credentials' });
-
-      const profile = issueToken(res, user);
-      res.json({ user: profile });
-    } catch (e) {
-      console.error('[Auth.login]', e);
-      res.status(500).json({ error: 'login failed' });
-    }
-  },
-
-  me: async (req, res) => {
-    // req.user ถูกใส่โดย authRequired
-    res.json({ user: req.user });
-  },
-
-  logout: async (_req, res) => {
-    res.clearCookie('token', { path: '/' });
-    res.json({ ok: true });
-  },
+/* Google callback (ไว้กรณีใช้ Google) */
+export const googleCallback = async (req, res) => {
+  try {
+    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
+    if (!req.user) return res.redirect(`${FRONTEND}/login?auth=failed`);
+    const token = signUser(req.user);
+    setAuthCookie(res, token);
+    const role = (req.user.role || '').toLowerCase();
+    return res.redirect(`${FRONTEND}${role === 'admin' ? '/admin' : '/workspace'}?auth=google`);
+  } catch (e) {
+    const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
+    console.error('google callback error:', e);
+    return res.redirect(`${FRONTEND}/login?auth=error`);
+  }
 };

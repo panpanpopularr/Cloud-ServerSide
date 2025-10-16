@@ -29,43 +29,36 @@ const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 const PORT = process.env.PORT || 4000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_secret_change_me';
 
-// ✅ อ่าน allowed origins จาก ENV คั่นด้วย comma (fallback = FRONTEND)
+// CORS (local)
 const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || FRONTEND)
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
-
-// ✅ โหมด cross-site (เช่น FE/API คนละโดเมนผ่าน Cloudflare)
-const IS_CROSS_SITE =
-  process.env.CROSS_SITE === '1' ||
-  (FRONTEND.startsWith('https://') && !FRONTEND.includes('localhost'));
+const IS_CROSS_SITE = false; // local
 
 const app = express();
-
-// ถ้าอยู่หลัง reverse proxy (เช่น cloudflared / nginx) ให้เชื่อ header proto
 app.set('trust proxy', 1);
 
 // ===== CORS =====
 app.use(
   cors({
     origin(origin, cb) {
-      // no Origin -> อนุญาต (เช่น curl / same-origin)
       if (!origin) return cb(null, true);
-      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-      return cb(new Error(`CORS blocked: ${origin}`), false);
+      const ok =
+        ALLOWED_ORIGINS.includes(origin) ||
+        /^http:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin);
+      cb(null, ok);
     },
     credentials: true,
   })
 );
-
-// Preflight เผื่อบาง client ไม่ผ่าน cors() ข้างบน
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0] || FRONTEND);
-  }
+  const allow =
+    (origin && (ALLOWED_ORIGINS.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin)))
+      ? origin
+      : (ALLOWED_ORIGINS[0] || FRONTEND);
+  res.setHeader('Access-Control-Allow-Origin', allow);
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -78,29 +71,21 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
 
-// แนบ user จาก JWT cookie ถ้ามี (จะทำให้ /auth/me และ route อื่นดึง req.user ได้เสมอ)
+// แนบ user จาก JWT cookie ให้ทุก request (อย่าใส่ซ้ำ)
 app.use(attachUser);
 
-// ===== session =====
-app.use(
-  session({
-    name: 'connect.sid',
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      sameSite: IS_CROSS_SITE ? 'none' : 'lax',
-      secure: IS_CROSS_SITE, // ต้อง true ถ้า sameSite = 'none'
-      maxAge: 1000 * 60 * 60 * 24 * 7,
-      path: '/',
-    },
-  })
-);
-
-// ===== passport =====
-app.use(passport.initialize());
-app.use(passport.session());
+// (ถ้าไม่ได้ใช้ session/passport ก็เอาบล็อกนี้ออกได้)
+// app.use(
+//   session({
+//     name: 'connect.sid',
+//     secret: SESSION_SECRET,
+//     resave: false,
+//     saveUninitialized: false,
+//     cookie: { httpOnly: true, sameSite: 'lax', secure: false, maxAge: 1000*60*60*24*7, path: '/' },
+//   })
+// );
+// app.use(passport.initialize());
+// app.use(passport.session());
 
 // ===== static =====
 app.use('/uploads', express.static(path.resolve('uploads')));
@@ -118,18 +103,26 @@ app.use(activityRoutes);
 app.use(memberRoutes);
 app.use(userRoutes);
 
+// (ออปชัน) รองรับทั้ง root และ /api
+app.use('/api', authRoutes);
+app.use('/api', adminRoutes);
+app.use('/api', projectRoutes);
+app.use('/api', taskRoutes);
+app.use('/api', fileRoutes);
+app.use('/api', activityRoutes);
+app.use('/api', memberRoutes);
+app.use('/api', userRoutes);
+
 // ===== 404 =====
 app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.url}`));
 
 // ===== start server =====
 const server = http.createServer(app);
-
-// ส่งค่า origins เป็น array ให้ socket.io (ใน lib/socket.js ควรรองรับ array)
 initSocket(server, { corsOrigin: ALLOWED_ORIGINS });
 
 server.listen(PORT, async () => {
   await ensureAdminSeed();
   console.log(`🚀 API running on http://localhost:${PORT}`);
   console.log(`CORS allowed: ${ALLOWED_ORIGINS.join(', ')}`);
-  console.log(`Cross-site mode: ${IS_CROSS_SITE ? 'ON (SameSite=None; Secure)' : 'OFF (SameSite=Lax)'}`);
+  console.log(`Cross-site mode: OFF (SameSite=Lax)`);
 });

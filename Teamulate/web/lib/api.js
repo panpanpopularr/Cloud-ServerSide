@@ -1,60 +1,51 @@
 // web/lib/api.js
 export const API =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'http://localhost:4000';
+  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')) || 'http://localhost:4000';
 
-async function handle(r) {
+const norm = (p) => (p?.startsWith('/') ? p : `/${p || ''}`);
+
+async function parseResponse(r) {
+  if (r.status === 204) return null;
+  const text = await r.text();
+  if (!text) return null;
+  try { return JSON.parse(text); } catch { return { raw: text }; }
+}
+
+async function request(method, path, body) {
+  const url = `${API}${norm(path)}`;
+  const init = {
+    method,
+    credentials: 'include',
+    headers: {},
+  };
+  if (body !== undefined) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body ?? {});
+  }
+  const r = await fetch(url, init);
+  const data = await parseResponse(r);
   if (!r.ok) {
-    let msg = 'request failed';
-    try {
-      const j = await r.json();
-      msg = j?.error || msg;
-    } catch {}
+    const msg = data?.error || data?.raw || `HTTP ${r.status}`;
     throw new Error(msg);
   }
-  return r.json();
+  return data;
 }
 
-export function apiGet(path) {
-  return fetch(`${API}${path}`, {
-    credentials: 'include',
-  }).then(handle);
-}
+/* ===== Public helpers used across the app ===== */
+export async function apiGet(path)    { return request('GET',    path); }
+export async function apiPost(path,b) { return request('POST',   path, b); }
+export async function apiPatch(path,b){ return request('PATCH',  path, b); }
+export async function apiPut(path,b)  { return request('PUT',    path, b); }
+export async function apiDelete(path) { return request('DELETE', path); }
 
-export function apiPost(path, body) {
-  return fetch(`${API}${path}`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  }).then(handle);
-}
-
-export function apiPatch(path, body) {
-  return fetch(`${API}${path}`, {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  }).then(handle);
-}
-
-export function apiDelete(path) {
-  return fetch(`${API}${path}`, {
-    method: 'DELETE',
-    credentials: 'include',
-  }).then(handle);
-}
-
-// ใช้กับ SWR
+/* SWR fetcher (keeps cookies) */
 export const swrFetcher = (url) =>
-  fetch(url, { credentials: 'include' }).then(async (r) => {
-    if (!r.ok) {
-      let msg = 'request failed';
-      try {
-        const j = await r.json();
-        msg = j?.error || msg;
-      } catch {}
-      throw new Error(msg);
-    }
-    return r.json();
-  });
+  fetch(url, { credentials: 'include' })
+    .then(async (r) => {
+      const data = await parseResponse(r);
+      if (!r.ok) throw new Error(data?.error || data?.raw || `HTTP ${r.status}`);
+      return data;
+    });
+
+/* OAuth helper */
+export function googleLoginUrl() { return `${API}/auth/google`; }
