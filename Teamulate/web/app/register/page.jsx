@@ -71,7 +71,7 @@ export default function RegisterPage() {
               <GoogleIcon/> Sign up with Google
             </span>
           </button>
-          <a href="/login" style={{...btnGhost, textAlign:'center', lineHeight:'38px'}}>Back to login</a>
+          <a href="/login" style={{...btnGhost, textAlign:'center', lineHeight:'38px', textDecoration: "none"}}>Back to login</a>
         </div>
       </div>
     </div>

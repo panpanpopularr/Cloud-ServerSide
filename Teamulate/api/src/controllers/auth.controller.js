@@ -1,3 +1,4 @@
+// api/src/controllers/auth.controller.js
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.js';
 import { signUser, setAuthCookie } from '../lib/jwt.js';
@@ -20,8 +21,8 @@ function clearAllAuthCookies(res) {
   res.clearCookie('token', { ...base, path: '/api' });
 
   // กัน edge case บราวเซอร์บางตัว
-  res.cookie('jwt', '',   { ...base, path: '/',   maxAge: 0 });
-  res.cookie('token','',  { ...base, path: '/',   maxAge: 0 });
+  res.cookie('jwt',  '', { ...base, path: '/', maxAge: 0 });
+  res.cookie('token','', { ...base, path: '/', maxAge: 0 });
 }
 
 /* ------------ register ------------ */
@@ -38,7 +39,7 @@ export const register = async (req, res) => {
       select: { id: true, email: true, role: true, name: true },
     });
 
-    const token = signUser(user); // ใส่ id/role/name ใน payload ตาม implement ของคุณ
+    const token = signUser(user);
     setAuthCookie(res, token);
     sendNoStore(res);
     res.status(201).json({ user });
@@ -72,10 +73,27 @@ export const login = async (req, res) => {
   }
 };
 
-/* ------------ me (no cache) ------------ */
+/* ------------ me (อ่านจาก DB สด + no-store) ------------ */
 export const me = async (req, res) => {
-  sendNoStore(res);
-  res.json({ user: req.user || null });
+  try {
+    // req.user ถูกเติมโดย attachUser จาก JWT → ใช้เฉพาะ id ในการดึง DB
+    const id = req.user?.id || req.user?.uid;
+    if (!id) {
+      sendNoStore(res);
+      return res.json({ user: null });
+    }
+
+    const u = await prisma.user.findUnique({
+      where: { id },
+      select: { id: true, email: true, name: true, role: true, createdAt: true, updatedAt: true },
+    });
+
+    sendNoStore(res);
+    return res.json({ user: u || null });
+  } catch (e) {
+    console.error('[auth.me]', e);
+    return res.status(500).json({ error: 'server_error' });
+  }
 };
 
 /* ------------ logout (ล้างให้หมด) ------------ */
@@ -85,7 +103,7 @@ export const logout = async (_req, res) => {
   res.json({ ok: true });
 };
 
-/* ------------ Google OAuth callback / finalize (เดิม) ------------ */
+/* ------------ Google OAuth callback / finalize ------------ */
 export async function googleCallback(req, res) {
   try {
     const u = req.user; // จาก passport
@@ -103,12 +121,17 @@ export async function finalizeFromToken(req, res) {
   try {
     const { token } = req.body || {};
     if (!token) return res.status(400).json({ error: 'token_required' });
-    const payload = jwt.verify(token, JWT_SECRET);
+
+    const payload = jwt.verify(token, JWT_SECRET); // { uid }
     if (!payload?.uid) return res.status(400).json({ error: 'bad_token' });
 
-    const u = await prisma.user.findUnique({ where: { id: payload.uid }, select: { id: true, email: true, role: true, name: true } });
+    const u = await prisma.user.findUnique({
+      where: { id: payload.uid },
+      select: { id: true, email: true, role: true, name: true },
+    });
     if (!u) return res.status(404).json({ error: 'user_not_found' });
 
+    // สร้าง first-party cookie ให้ FE
     const firstPartyToken = signUser({ id: u.id, email: u.email, role: u.role, name: u.name });
     setAuthCookie(res, firstPartyToken);
     sendNoStore(res);

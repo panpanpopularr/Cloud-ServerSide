@@ -1,0 +1,12 @@
+/* ปิด scroll ของทั้งหน้า และตั้ง background ตามธีม */
+html, body, #__next {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;         /* ❌ ปิด scroll ของทั้งหน้า */
+  background-color: #0b1220; /* ✅ ให้พื้นหลังสีเข้มแบบที่คุณใช้ */
+  color: #e6edf3;
+  font-family: system-ui, sans-serif;
+}

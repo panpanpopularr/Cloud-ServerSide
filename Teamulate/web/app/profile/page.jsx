@@ -2,16 +2,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { mutate as swrMutate } from 'swr';
 import { useRouter } from 'next/navigation';
+import { useSWRConfig } from 'swr';
 import { API } from '@/lib/api';
 
 export default function ProfilePage() {
   const [user, setUser] = useState({ name: '', email: '' });
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving]   = useState(false);
   const [message, setMessage] = useState('');
   const router = useRouter();
+  const { mutate } = useSWRConfig();
 
+  // โหลดข้อมูลผู้ใช้
   useEffect(() => {
     (async () => {
       try {
@@ -27,9 +30,13 @@ export default function ProfilePage() {
     })();
   }, []);
 
+  // บันทึกชื่อผู้ใช้
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (saving) return;
     setMessage('');
+    setSaving(true);
+
     try {
       const res = await fetch(`${API}/users/me`, {
         method: 'PATCH',
@@ -45,10 +52,10 @@ export default function ProfilePage() {
       }
 
       const j = await res.json().catch(() => ({}));
-      const newName = j?.user?.name ?? user.name;
+      const newName = (j?.user?.name ?? user.name) || '';
 
-      // ✅ อัปเดตแคช /auth/me ทันที ให้ header เปลี่ยน
-      await swrMutate(
+      // ✅ อัปเดตแคช /auth/me ทันที → ให้ header/Workspace เปลี่ยนชื่อทันที
+      await mutate(
         `${API}/auth/me`,
         (prev) => {
           if (!prev) return { user: { name: newName } };
@@ -58,21 +65,25 @@ export default function ProfilePage() {
         { revalidate: false }
       );
 
-      // ✅ แล้วค่อย revalidate เพื่อ sync กับ DB ที่ /auth/me (ซึ่งอ่านจาก DB ทุกครั้งแล้ว)
-      await swrMutate(`${API}/auth/me`, undefined, { revalidate: true });
+      // ✅ เผื่อจุดอื่นเรียกคีย์ /auth/me ในรูปแบบต่าง ๆ
+      await mutate((key) => typeof key === 'string' && key.endsWith('/auth/me'));
 
-      // (ถ้ามีจุดไหนเรียก /users/me ด้วย SWR ก็รีเฟรชด้วย)
-      await swrMutate(`${API}/users/me`, undefined, { revalidate: false });
+      // ✅ (ออปชัน) รีเฟรชจากเซิร์ฟเวอร์อีกครั้งเพื่อ sync ฟิลด์อื่น ๆ
+      await mutate(`${API}/auth/me`);
 
+      // อัปเดต state ภายในหน้า และโชว์สถานะ
       setUser((u) => ({ ...u, name: newName }));
       setMessage('อัปเดตข้อมูลเรียบร้อยแล้ว!');
     } catch {
       setMessage('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      setSaving(false);
     }
   };
 
   const goBack = async () => {
-    await swrMutate(`${API}/auth/me`, undefined, { revalidate: true });
+    // รีเฟรช /auth/me อีกรอบก่อนกลับ
+    await mutate(`${API}/auth/me`);
     router.push('/workspace');
   };
 
@@ -102,7 +113,11 @@ export default function ProfilePage() {
 
           <div>
             <label style={label}>อีเมล</label>
-            <input value={user.email} disabled style={{ ...inp, opacity: 0.6, cursor: 'not-allowed' }} />
+            <input
+              value={user.email}
+              disabled
+              style={{ ...inp, opacity: 0.6, cursor: 'not-allowed' }}
+            />
           </div>
 
           {message && (
@@ -121,8 +136,12 @@ export default function ProfilePage() {
           )}
 
           <div style={{ display: 'flex', gap: 12 }}>
-            <button type="submit" style={{ ...btn, flex: 1, background: '#2563eb' }}>
-              บันทึกข้อมูล
+            <button
+              type="submit"
+              disabled={saving}
+              style={{ ...btn, flex: 1, background: saving ? '#1e3a8a' : '#2563eb', opacity: saving ? 0.7 : 1 }}
+            >
+              {saving ? 'กำลังบันทึก…' : 'บันทึกข้อมูล'}
             </button>
             <button type="button" onClick={goBack} style={{ ...btn, flex: 1 }}>
               กลับ

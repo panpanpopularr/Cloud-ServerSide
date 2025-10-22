@@ -130,3 +130,16 @@ model Activity {
 
   @@index([projectId])
 }
+
+// prisma/schema.prisma
+model ChatMessage {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String
+  text      String
+  createdAt DateTime @default(now())
+
+  // (ถ้า project / user เป็น relation ก็ใส่เพิ่มได้)
+  // project   Project @relation(fields: [projectId], references: [id])
+  // user      User    @relation(fields: [userId], references: [id])
+}
