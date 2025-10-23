@@ -6,7 +6,6 @@ import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import cookieParser from 'cookie-parser';
-// ไม่ใช้ session แล้ว (คุกกี้ JWT พอ)
 import passport from 'passport';
 
 import './lib/passport.js';
@@ -18,10 +17,10 @@ import taskRoutes from './routes/task.routes.js';
 import fileRoutes from './routes/file.routes.js';
 import activityRoutes from './routes/activity.routes.js';
 import memberRoutes from './routes/member.routes.js';
+import chatRoutes from './routes/chat.routes.js';   // ← ใช้ชื่อเดียวกับไฟล์
 import { initSocket } from './lib/socket.js';
 import { ensureAdminSeed } from './lib/bootstrap.js';
 import { attachUser } from './middlewares/auth.js';
-import chatRoutes from './routes/chat.routes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,9 +34,8 @@ const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || FRONTEND)
   .map((s) => s.trim())
   .filter(Boolean);
 
-// เผื่อเปิดผ่าน cloudflared / dev
 const isAllowedOrigin = (origin) => {
-  if (!origin) return true; // same-site / curl / server-2-server
+  if (!origin) return true;
   if (ALLOWED_ORIGINS.includes(origin)) return true;
   if (/^http:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin)) return true;
   if (/^https?:\/\/.*\.trycloudflare\.com$/.test(origin)) return true;
@@ -45,38 +43,29 @@ const isAllowedOrigin = (origin) => {
 };
 
 const app = express();
-app.set('trust proxy', 1); // เผื่ออยู่หลัง Cloudflare/Proxy
+app.set('trust proxy', 1);
 
-// ===== CORS (ให้แพ็กเกจ cors จัดการทั้งหมด) =====
-app.use(
-  cors({
-    origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
-// รองรับ preflight ทุกเส้นทาง
+// CORS
+app.use(cors({
+  origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 
-// ===== logger / parsers =====
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(cookieParser());
-
-// แนบ user จาก JWT cookie ให้ทุก request
 app.use(attachUser);
-
-// Google OAuth แบบไม่มี session
 app.use(passport.initialize());
 
-// ===== static =====
+// static
 app.use('/uploads', express.static(path.resolve('uploads')));
 
-// ===== health =====
+// health
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// ===== routes =====
-app.use(chatRoutes);
+// routes (base)
 app.use(authRoutes);
 app.use(adminRoutes);
 app.use(projectRoutes);
@@ -85,8 +74,9 @@ app.use(fileRoutes);
 app.use(activityRoutes);
 app.use(memberRoutes);
 app.use(userRoutes);
+app.use(chatRoutes);
 
-// (ออปชัน) รองรับทั้ง /api/*
+// (optional) mirror under /api
 app.use('/api', authRoutes);
 app.use('/api', adminRoutes);
 app.use('/api', projectRoutes);
@@ -97,10 +87,10 @@ app.use('/api', memberRoutes);
 app.use('/api', userRoutes);
 app.use('/api', chatRoutes);
 
-// ===== 404 =====
+// 404
 app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.url}`));
 
-// ===== start server =====
+// start
 const server = http.createServer(app);
 initSocket(server, { corsOrigin: (origin) => isAllowedOrigin(origin) });
 

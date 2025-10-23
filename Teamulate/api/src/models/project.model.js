@@ -2,25 +2,13 @@
 import prisma from '../lib/prisma.js';
 
 export const ProjectModel = {
-  /**
-   * สร้างโปรเจ็กต์พร้อม ownerId ของผู้ที่ล็อกอิน
-   */
   create: async ({ name, description = '', ownerId }) => {
     return prisma.project.create({
-      data: {
-        name,
-        description,
-        ownerId,
-      },
-      include: { owner: true },
+      data: { name, description, ownerId },
+      include: { owner: true },                // ให้มี owner object กลับไปด้วย
     });
   },
 
-  /**
-   * คืนรายการโปรเจ็กต์ที่ผู้ใช้มองเห็น
-   * - เป็นเจ้าของ (ownerId === userId)
-   * - หรือถูกเชิญผ่าน ProjectMember
-   */
   listForUser: async (userId) => {
     return prisma.project.findMany({
       where: {
@@ -30,12 +18,30 @@ export const ProjectModel = {
         ],
       },
       orderBy: { createdAt: 'desc' },
+      include: { owner: true },                // เผื่อฝั่งเว็บใช้ Manager จาก owner
     });
   },
 
-  /**
-   * ตรวจสิทธิ์: เป็น owner หรือเป็น admin
-   */
+  // ⬇️ ใช้กับ GET /projects/:id
+  getById: async (projectId) => {
+    return prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        owner: true,
+        _count: { select: { members: true, tasks: true, files: true } },
+      },
+    });
+  },
+
+  // ⬇️ ใช้กับ GET /projects/:id/members
+  listMembers: async (projectId) => {
+    return prisma.projectMember.findMany({
+      where: { projectId },
+      include: { user: true },
+      orderBy: { user: { name: 'asc' } },
+    });
+  },
+
   isOwnerOrAdmin: async (projectId, user) => {
     if (user?.role === 'admin') return true;
     const p = await prisma.project.findUnique({
@@ -45,16 +51,10 @@ export const ProjectModel = {
     return p?.ownerId === user?.id;
   },
 
-  /**
-   * ลบโปรเจ็กต์ (cascade ตาม schema)
-   */
   deleteCascade: async (projectId) => {
     return prisma.project.delete({ where: { id: projectId } });
   },
 
-  /**
-   * เชิญสมาชิกเข้าโปรเจ็กต์
-   */
   inviteMember: async (projectId, userId, role = 'viewer') => {
     return prisma.projectMember.upsert({
       where: { projectId_userId: { projectId, userId } },

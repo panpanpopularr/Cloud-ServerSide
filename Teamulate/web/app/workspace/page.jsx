@@ -433,10 +433,15 @@ export default function Page() {
             )}
           </div>
 
-          {/* Chat */}
-          <div style={cardFlex}>
-            <div style={sticky}><h3 style={h3}>Chat</h3></div>
-            <div ref={chatBoxRef} style={scrollBody}>
+          {/* ===== Chat (อยู่คอลัมน์กลาง) ===== */}
+          <div style={{ ...cardFlex, display: 'grid', gridTemplateRows: 'auto 1fr auto', minHeight: 0 }}>
+            <h3 style={{ marginTop: 0 }}>Chat</h3>
+
+            {/* กล่องข้อความที่เลื่อน */}
+            <div
+              ref={chatBoxRef}
+              style={{ overflowY: 'auto', minHeight: 0, border: '1px solid #1f2a3a', borderRadius: 10, padding: 8 }}
+            >
               {chat.length === 0 && <div style={{ opacity: .7 }}>No messages.</div>}
               {chat.map((m) => (
                 <div key={m.id} style={{ marginBottom: 8 }}>
@@ -447,11 +452,17 @@ export default function Page() {
                 </div>
               ))}
             </div>
-            <div style={stickyBottom}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input value={chatInput} onChange={(e) => setChatInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }} placeholder="พิมพ์ข้อความ…" style={{ ...inp, flex: 1 }} />
-                <button onClick={sendChat} style={btn}>Send</button>
-              </div>
+
+            {/* แถบพิมพ์ – ล่างสุด */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }}
+                placeholder="พิมพ์ข้อความ…"
+                style={{ ...inp, flex: 1 }}
+              />
+              <button onClick={sendChat} style={btn}>Send</button>
             </div>
           </div>
 
