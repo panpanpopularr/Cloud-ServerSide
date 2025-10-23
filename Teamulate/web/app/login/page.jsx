@@ -137,7 +137,7 @@ export default function LoginPage() {
               <GoogleIcon/> Sign in with Google
             </span>
           </button>
-          <a href="/register" style={{...btnGhost, textAlign:'center', lineHeight:'38px'}}>Create account</a>
+          <a href="/register" style={{...btnGhost, textAlign:'center', lineHeight:'38px', textDecoration:'none'}}>Create account</a>
         </div>
       </div>
     </div>

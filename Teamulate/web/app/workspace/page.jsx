@@ -398,7 +398,11 @@ export default function Page() {
                       <li key={t.id} style={{ padding: 8, border: '1px solid #1f2a3a', borderRadius: 10, marginBottom: 8 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                           <div>
-                            <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{t.title}</div>
+                            <div style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+                              <Link href={`/tasks/${t.id}`} style={{ color: '#93c5fd', textDecoration: 'none' }}>
+                                {t.title}
+                              </Link>
+                            </div>
                             <div style={{ fontSize: 12, opacity: .7, overflowWrap: 'anywhere' }}>
                               สถานะ: {labelOf(t.status)} · กำหนดส่ง {t.deadline || '—'} · ผู้รับผิดชอบ: {t.assignee?.name || t.assignee?.email || '—'}
                             </div>

@@ -34,7 +34,11 @@ export const FileController = {
         type: 'FILE_UPLOADED',
         payload: { id: f.id, name: f.originalname ?? f.name },
       });
-      emitActivity(projectId, { type: 'FILE_UPLOADED', payload: { id: f.id, name: f.originalname ?? f.name } });
+      emitActivity(projectId, 'FILE_UPLOADED', {
+        name: file.originalname,
+        byId: req.user?.id,
+        byName: req.user?.name || req.user?.email || '(unknown user)',
+      });
 
       res.json(toFileJSON(f));
     } catch (e) {
@@ -80,7 +84,11 @@ export const FileController = {
         type: 'FILE_DELETED',
         payload: { id: f.id, name: f.originalname ?? f.name },
       });
-      emitActivity(f.projectId, { type: 'FILE_DELETED', payload: { id: f.id, name: f.originalname ?? f.name } });
+      emitActivity(projectId, 'FILE_UPLOADED', {
+        name: file.originalname,
+        byId: req.user?.id,
+        byName: req.user?.name || req.user?.email || '(unknown user)',
+      });
 
       res.json({ ok: true, deleted: count });
     } catch (e) {
