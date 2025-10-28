@@ -22,6 +22,10 @@ function formatDateTime(ts) {
   return { time: d.toLocaleTimeString(), date: d.toLocaleDateString() };
 }
 
+const fileHref = (f) =>
+  f?.url ||
+  `${API}/uploads/${f.projectId}/${encodeURIComponent(f.filename || f.s3Key || '') || ''}`;
+
 export default function Page() {
   const { mutate } = useSWRConfig();
 
@@ -259,14 +263,58 @@ export default function Page() {
   const fileRef = useRef();
   const uploadFile = async () => {
     if (!selected || !fileRef.current?.files?.[0]) return;
-    const fd = new FormData(); fd.append('file', fileRef.current.files[0]);
+    const file = fileRef.current.files[0];
+
     try {
-      const res = await fetch(`${API}/projects/${selected}/files/upload`, { method: 'POST', credentials: 'include', body: fd });
-      if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+      // 1) ขอ presign
+      const psRes = await fetch(`${API}/projects/${selected}/files/presign`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream' }),
+      });
+      if (!psRes.ok) throw new Error('presign_failed');
+      const { url, fields, key } = await psRes.json();
+
+      // 2) อัปโหลดตรงเข้า S3
+      const fd = new FormData();
+      Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
+      fd.append('file', file);
+      const s3Res = await fetch(url, { method: 'POST', body: fd });
+      if (!s3Res.ok) throw new Error('s3_upload_failed');
+
+      // 3) แจ้ง API ให้สร้างเรคอร์ด/แอคทิวิตี้
+      const commitRes = await fetch(`${API}/projects/${selected}/files/commit`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key,
+          filename: file.name,       // เก็บชื่อเดิม (ไทย)
+          size: file.size,
+          mimetype: file.type || 'application/octet-stream',
+        }),
+      });
+      if (!commitRes.ok) throw new Error('commit_failed');
+
       fileRef.current.value = '';
-      await refetchFiles(); await refetchActivity();
-    } catch (e) { alert('อัปโหลดไม่สำเร็จ: ' + e.message); }
+      await refetchFiles();
+      await refetchActivity();
+    } catch (e) {
+      // ❗ ถ้า direct พลาด ให้ fallback ไปเส้นทาง API เดิม
+      try {
+        const fd = new FormData();
+        fd.append('file', fileRef.current.files[0]);
+        const res = await fetch(`${API}/projects/${selected}/files/upload`, { method: 'POST', credentials: 'include', body: fd });
+        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
+        fileRef.current.value = '';
+        await refetchFiles(); await refetchActivity();
+      } catch (err) {
+        alert('อัปโหลดไม่สำเร็จ: ' + (err?.message || e?.message));
+      }
+    }
   };
+
   const deleteFile = async (fileId) => {
     if (!confirm('ลบไฟล์นี้ใช่ไหม?')) return;
     try { await apiDelete(`/files/${fileId}`); await refetchFiles(); await refetchActivity(); }
@@ -484,17 +532,31 @@ export default function Page() {
                 </div>
                 <div style={scrollBody}>
                   <ul style={{ listStyle: 'none', padding: 0, marginTop: 12 }}>
-                    {files.map(f => (
-                      <li key={f.id} style={{ padding: 8, border: '1px solid #1f2a3a', borderRadius: 10, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-                        <div>
-                          <a href={`${API}/uploads/${f.projectId}/${f.filename || f.s3Key || ''}`} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', overflowWrap: 'anywhere' }}>
-                            {f.originalname || f.name || 'file'}
-                          </a>
-                          <div style={{ fontSize: 12, opacity: .7 }}>{(f.size / 1024).toFixed(1)} KB</div>
-                        </div>
-                        <button onClick={() => deleteFile(f.id)} style={{ ...btn, background: '#7f1d1d', border: '1px solid #b91c1c', padding: '8px 10px' }}>🗑</button>
-                      </li>
-                    ))}
+                    {files.map(f => {
+                      const href = fileHref(f);
+                      return (
+                        <li key={f.id} style={{ padding: 8, border: '1px solid #1f2a3a', borderRadius: 10, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                          <div>
+                            <a href={href || '#'} target="_blank" rel="noreferrer" style={{ color: '#93c5fd', overflowWrap: 'anywhere' }}>
+                              {f.originalname || f.name || 'file'}
+                            </a>
+                            <div style={{ fontSize: 12, opacity: .7 }}>{(f.size / 1024).toFixed(1)} KB</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            {/* ✅ ปุ่ม Download แยก */}
+                            {/* <a
+                              href={`${API}/files/${f.id}/download`}
+                              style={{ ...btn, textDecoration: 'none', padding: '8px 10px' }}
+                            >
+                              Download
+                            </a> */}
+                            <button onClick={() => deleteFile(f.id)} style={{ ...btn, background: '#7f1d1d', border: '1px solid #b91c1c', padding: '8px 10px' }}>
+                              🗑
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
                     {files.length === 0 && <div style={{ opacity: .7 }}>No files.</div>}
                   </ul>
                 </div>

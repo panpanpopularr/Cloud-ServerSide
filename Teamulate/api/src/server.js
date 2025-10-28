@@ -1,4 +1,4 @@
-// api/src/server.js
+import 'dotenv/config'; // ✅ ต้องอยู่บรรทัดแรก
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -44,6 +44,7 @@ const isAllowedOrigin = (origin) => {
 
 const app = express();
 app.set('trust proxy', 1);
+app.get('/health', (_req, res) => res.status(200).send('ok'));
 
 // CORS
 app.use(cors({

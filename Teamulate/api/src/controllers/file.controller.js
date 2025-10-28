@@ -4,43 +4,58 @@ import { emitActivity } from '../lib/socket.js';
 import path from 'path';
 import fs from 'fs';
 
-const toFileJSON = (f) => ({
-  id: f.id,
-  projectId: f.projectId,
-  filename: f.filename ?? f.s3Key ?? '',
-  originalname: f.originalname ?? f.name ?? 'file',
-  mimetype: f.mimetype ?? f.mimeType ?? 'application/octet-stream',
-  size: f.size ?? 0,
-  createdAt: f.createdAt ?? f.uploadedAt ?? null,
-});
+const REGION = process.env.AWS_REGION || 'us-east-1';
+const BUCKET = process.env.S3_BUCKET || '';
+
+const toFileJSON = (f) => {
+  const filename = f.filename ?? f.s3Key ?? '';
+  const originalname = f.originalname ?? f.name ?? 'file';
+  const mimetype = f.mimetype ?? f.mimeType ?? 'application/octet-stream';
+  const size = f.size ?? 0;
+  const createdAt = f.uploadedAt ?? f.createdAt ?? null;
+
+  // ถ้ามี s3Key ⇒ ทำ URL S3 ให้เลย
+  const url = f.url
+    || (f.s3Key && BUCKET ? `https://${BUCKET}.s3.${REGION}.amazonaws.com/${encodeURIComponent(f.s3Key)}` : null);
+
+  return { id: f.id, projectId: f.projectId, filename, originalname, mimetype, size, createdAt, url };
+};
 
 export const FileController = {
   upload: async (req, res) => {
     try {
       const { projectId } = req.params;
-      if (!req.file) return res.status(400).json({ error: 'file required' });
+      const f = req.file;
+      if (!f) return res.status(400).json({ error: 'file required' });
 
-      const f = await FileModel.create({
+      const rec = await FileModel.create({
         projectId,
-        filename: req.file.filename,
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
-        size: req.file.size,
-        uploadedBy: 'system',
+        filename: f.filename,        // หรือ s3Key ใน fallback
+        originalname: f.originalname,
+        mimetype: f.mimetype,
+        size: f.size,
+        uploadedBy: req.user?.id || 'system',
       });
 
       await ActivityModel.add({
         projectId,
         type: 'FILE_UPLOADED',
-        payload: { id: f.id, name: f.originalname ?? f.name },
+        payload: {
+          id: rec.id,
+          name: rec.originalname ?? rec.name,
+          byId: req.user?.id,
+          byName: req.user?.name || req.user?.email || '(unknown user)',
+        },
       });
+
       emitActivity(projectId, 'FILE_UPLOADED', {
-        name: file.originalname,
+        id: rec.id,
+        name: rec.originalname ?? rec.name,
         byId: req.user?.id,
         byName: req.user?.name || req.user?.email || '(unknown user)',
       });
 
-      res.json(toFileJSON(f));
+      res.json(toFileJSON(rec));
     } catch (e) {
       console.error('[File.upload]', e);
       res.status(500).json({ error: 'upload failed' });
@@ -60,32 +75,34 @@ export const FileController = {
   remove: async (req, res) => {
     try {
       const { id } = req.params;
-      const f = await FileModel.findById(id);
-      if (!f) return res.status(404).json({ error: 'not found' });
+      const rec = await FileModel.findById(id);
+      if (!rec) return res.status(404).json({ error: 'not found' });
 
-      // ชื่อไฟล์บนดิสก์ (รองรับ schema เก่า/ใหม่)
-      const diskName = f.filename ?? f.s3Key ?? null;
+      // ลบไฟล์บนดิสก์ (รองรับทั้ง filename/s3Key)
+      const diskName = rec.filename ?? rec.s3Key ?? null;
       if (diskName) {
-        // ✅ ต้องมีโฟลเดอร์ projectId ด้วย (เราอัปโหลดไว้เป็น uploads/<projectId>/<filename>)
-        const fullPath = path.resolve('uploads', String(f.projectId), String(diskName));
-        try {
-          if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-        } catch (err) {
-          // ไม่ให้ล้ม แม้ unlink จะพลาด
+        const fullPath = path.resolve('uploads', String(rec.projectId), String(diskName));
+        try { if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath); } catch (err) {
           console.warn('[File.remove] unlink warn:', err.message);
         }
       }
 
-      // ใช้ deleteMany เพื่อลดโอกาส Prisma โยน error P2025 หาก record ไม่มี
       const { count } = await FileModel.deleteById(id);
 
       await ActivityModel.add({
-        projectId: f.projectId,
+        projectId: rec.projectId,
         type: 'FILE_DELETED',
-        payload: { id: f.id, name: f.originalname ?? f.name },
+        payload: {
+          id: rec.id,
+          name: rec.originalname ?? rec.name,
+          byId: req.user?.id,
+          byName: req.user?.name || req.user?.email || '(unknown user)',
+        },
       });
-      emitActivity(projectId, 'FILE_UPLOADED', {
-        name: file.originalname,
+
+      emitActivity(rec.projectId, 'FILE_DELETED', {
+        id: rec.id,
+        name: rec.originalname ?? rec.name,
         byId: req.user?.id,
         byName: req.user?.name || req.user?.email || '(unknown user)',
       });

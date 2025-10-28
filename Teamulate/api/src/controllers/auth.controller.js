@@ -6,7 +6,6 @@ import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
 
-/* ------------ helpers ------------ */
 function sendNoStore(res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -14,13 +13,10 @@ function sendNoStore(res) {
 }
 function clearAllAuthCookies(res) {
   const base = { httpOnly: true, sameSite: 'lax', secure: false };
-  // ทั้งชื่อ jwt และ token และทั้ง path / และ /api
   res.clearCookie('jwt',   { ...base, path: '/'   });
   res.clearCookie('jwt',   { ...base, path: '/api' });
   res.clearCookie('token', { ...base, path: '/'   });
   res.clearCookie('token', { ...base, path: '/api' });
-
-  // กัน edge case บราวเซอร์บางตัว
   res.cookie('jwt',  '', { ...base, path: '/', maxAge: 0 });
   res.cookie('token','', { ...base, path: '/', maxAge: 0 });
 }
@@ -35,7 +31,7 @@ export const register = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { email, name, password: hashed, role: 'user' },
+      data: { email, name, passwordHash: hashed, role: 'user' },  // ✅ บันทึกลง passwordHash
       select: { id: true, email: true, role: true, name: true },
     });
 
@@ -56,10 +52,15 @@ export const login = async (req, res) => {
     const email = (req.body?.email || '').toLowerCase().trim();
     const password = (req.body?.password || '').toString();
 
+    // ต้องดึง passwordHash มาเทียบ
     const user = await prisma.user.findUnique({ where: { email } });
-    if (!user || !user.password) return res.status(401).json({ error: 'invalid_credentials' });
+    if (!user) return res.status(401).json({ error: 'invalid_credentials' });
 
-    const ok = await bcrypt.compare(password, user.password);
+    // รองรับเรคอร์ดเก่าที่อาจมี field password
+    const hash = user.passwordHash || user.password;
+    if (!hash) return res.status(401).json({ error: 'invalid_credentials' });
+
+    const ok = await bcrypt.compare(password, hash);
     if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
 
     const safe = { id: user.id, email: user.email, role: user.role, name: user.name };
@@ -73,10 +74,9 @@ export const login = async (req, res) => {
   }
 };
 
-/* ------------ me (อ่านจาก DB สด + no-store) ------------ */
+/* ------------ me ------------ */
 export const me = async (req, res) => {
   try {
-    // req.user ถูกเติมโดย attachUser จาก JWT → ใช้เฉพาะ id ในการดึง DB
     const id = req.user?.id || req.user?.uid;
     if (!id) {
       sendNoStore(res);
@@ -96,7 +96,7 @@ export const me = async (req, res) => {
   }
 };
 
-/* ------------ logout (ล้างให้หมด) ------------ */
+/* ------------ logout ------------ */
 export const logout = async (_req, res) => {
   clearAllAuthCookies(res);
   sendNoStore(res);
@@ -106,7 +106,7 @@ export const logout = async (_req, res) => {
 /* ------------ Google OAuth callback / finalize ------------ */
 export async function googleCallback(req, res) {
   try {
-    const u = req.user; // จาก passport
+    const u = req.user;
     const token = jwt.sign({ uid: u.id }, JWT_SECRET, { expiresIn: '7d' });
     const FE = (process.env.FRONTEND_URL || 'http://localhost:3000');
     return res.redirect(`${FE}/login?auth=google&token=${encodeURIComponent(token)}`);
@@ -131,7 +131,6 @@ export async function finalizeFromToken(req, res) {
     });
     if (!u) return res.status(404).json({ error: 'user_not_found' });
 
-    // สร้าง first-party cookie ให้ FE
     const firstPartyToken = signUser({ id: u.id, email: u.email, role: u.role, name: u.name });
     setAuthCookie(res, firstPartyToken);
     sendNoStore(res);
