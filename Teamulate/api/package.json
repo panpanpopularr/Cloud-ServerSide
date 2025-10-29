@@ -1,13 +1,12 @@
 {
   "name": "teamulate-api",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "type": "module",
+  "engines": { "node": "22.x" },
   "scripts": {
-    "dev": "nodemon --watch src --ext js --exec node src/server.js",
     "start": "node src/server.js",
-    "prisma:migrate": "npx prisma migrate dev",
-    "prisma:studio": "npx prisma studio"
+    "build": "echo \"no build for api\"",
+    "postinstall": "prisma generate || true"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.918.0",

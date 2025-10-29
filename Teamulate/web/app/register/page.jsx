@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { apiGet, apiPost, API, googleLoginUrl } from '@/lib/api';
+import { apiGet, apiPost, API, googleLoginUrl } from '../../lib/api';
 import { useRouter } from 'next/navigation';
 
 export default function RegisterPage() {

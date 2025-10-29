@@ -1,5 +1,5 @@
 export const API =
-  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')) || 'http://localhost:4000';
+  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')) || 'https://teamulate-env.eba-3a2eh6tm.us-east-1.elasticbeanstalk.com';
 
 const norm = (p) => (p?.startsWith('/') ? p : `/${p || ''}`);
 

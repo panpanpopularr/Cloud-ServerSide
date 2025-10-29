@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { API, apiPost, apiPatch, apiDelete, swrFetcher } from '@/lib/api';
+import { API, apiPost, apiPatch, apiDelete, swrFetcher } from '../../lib/api';
 
 const STATUS = [
   { code: 'ACTIVE', label: 'กำลังทำ' },

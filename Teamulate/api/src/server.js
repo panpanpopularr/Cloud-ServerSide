@@ -44,7 +44,7 @@ const isAllowedOrigin = (origin) => {
 
 const app = express();
 app.set('trust proxy', 1);
-app.get('/health', (_req, res) => res.status(200).send('ok'));
+app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // CORS
 app.use(cors({
@@ -62,9 +62,6 @@ app.use(passport.initialize());
 
 // static
 app.use('/uploads', express.static(path.resolve('uploads')));
-
-// health
-app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // routes (base)
 app.use(authRoutes);

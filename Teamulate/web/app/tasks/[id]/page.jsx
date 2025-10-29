@@ -4,7 +4,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
-import { API, swrFetcher } from '@/lib/api';
+import { API, swrFetcher } from '../../../lib/api';
 
 export default function TaskDetailPage() {
   const params = useParams();

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSWRConfig } from 'swr';
-import { API } from '@/lib/api';
+import { API } from '../../lib/api';
 
 export default function ProfilePage() {
   const [user, setUser] = useState({ name: '', email: '' });

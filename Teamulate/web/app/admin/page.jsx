@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
-import { API, swrFetcher, apiPatch, apiDelete } from '@/lib/api';
+import { API, swrFetcher, apiPatch, apiDelete } from '../../lib/api';
 
 export default function AdminPage() {
   const router = useRouter();

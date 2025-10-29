@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { apiGet, apiPost, API, googleLoginUrl } from '@/lib/api';
+import { apiGet, apiPost, API, googleLoginUrl } from '../../lib/api';
 import { mutate as swrMutate } from 'swr';
 
 export default function LoginPage() {

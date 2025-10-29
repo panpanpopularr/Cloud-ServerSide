@@ -1,11 +1,17 @@
 #!/bin/bash
-# รันหลัง EB ติดตั้งเสร็จในแต่ละ deploy
-set -e
+set -euo pipefail
 
-echo "[postdeploy] running prisma migrate deploy..."
-/usr/bin/npm run migrate --prefix /var/app/staging
+# โค้ดจริงที่ EB รันหลังปล่อย
+cd /var/app/current
 
-echo "[postdeploy] ensure admin seed..."
-/usr/bin/npm run seed:admin --prefix /var/app/staging
+# ให้ EB หา npx/npm ที่ node_modules/.bin ได้
+export PATH="$PATH:/var/app/current/node_modules/.bin"
 
-echo "[postdeploy] done."
+echo "[postdeploy] prisma generate"
+npx prisma generate || true
+
+echo "[postdeploy] prisma migrate deploy"
+# แนะนำให้ใช้เฉพาะ migrate deploy บนโปรดักชัน
+npx prisma migrate deploy
+
+echo "[postdeploy] done"
