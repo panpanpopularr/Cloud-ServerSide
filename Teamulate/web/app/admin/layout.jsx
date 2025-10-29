@@ -1,7 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiGet } from '@/lib/api';
+import { apiGet } from '../../lib/api';
 
 export default function AdminLayout({ children }) {
   const router = useRouter();
