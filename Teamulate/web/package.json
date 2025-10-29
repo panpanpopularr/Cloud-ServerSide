@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start -p $PORT"
   },
-    "engines": {
-    "node": ">=20 <23"
+  "engines": {
+    "node": "22.x"
   },
   "dependencies": {
     "next": "^14.2.6",
