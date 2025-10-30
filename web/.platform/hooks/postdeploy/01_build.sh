@@ -1,4 +1,5 @@
-set -e
+set -euo pipefail
+
 cd /var/app/current
 
 echo "Installing dependencies..."
