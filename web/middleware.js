@@ -2,12 +2,25 @@
 import { NextResponse } from 'next/server';
 
 export function middleware(req) {
-  // ถ้าต้องการให้ root เด้งไป /login เสมอ ก็ทำแค่นี้พอ
-  if (req.nextUrl.pathname === '/') {
-    return NextResponse.redirect(new URL('/login', req.url));
+  const { pathname } = req.nextUrl;
+  const ua = req.headers.get('user-agent') || '';
+
+  // allow health checks
+  if (pathname === '/health' || ua.includes('ELB-HealthChecker')) {
+    return NextResponse.next();
   }
+
+  // ตัวอย่าง rule: เด้ง root -> /login
+  if (pathname === '/') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 
-// ไม่ต้องแมตช์ /workspace เพื่อหลีกเลี่ยงการเช็คสิทธิ์ฝั่ง edge
-export const config = { matcher: ['/', '/login', '/register'] };
+export const config = {
+  // ไม่จับ api, ไฟล์ static, favicon และ /health
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|health).*)'],
+};

@@ -1,5 +1,14 @@
-export const API =
-  (process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '')) || 'https://teamulate-env.eba-3a2eh6tm.us-east-1.elasticbeanstalk.com';
+// web/lib/api.js
+const raw = (process.env.NEXT_PUBLIC_API_URL || '').trim();
+
+// กันคนพิมพ์ผิด เช่น “=http” หรือใส่ช่องว่าง
+const fromEnv = raw.replace(/^=+/, '').replace(/\/+$/, '');
+if (!fromEnv) {
+  throw new Error('❌ NEXT_PUBLIC_API_URL is missing or invalid.');
+}
+
+console.log('[FE] API base =', fromEnv);
+export const API = fromEnv;
 
 const norm = (p) => (p?.startsWith('/') ? p : `/${p || ''}`);
 
@@ -16,7 +25,7 @@ async function request(method, path, body) {
     method,
     credentials: 'include',
     headers: {},
-    cache: 'no-store',       // ⬅️ กัน cache
+    cache: 'no-store',
   };
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
@@ -34,7 +43,7 @@ export async function apiPatch(path,b) { return request('PATCH',  path, b); }
 export async function apiPut(path,  b) { return request('PUT',    path, b); }
 export async function apiDelete(path)  { return request('DELETE', path); }
 
-// SWR fetcher (ปิด cache)
+// SWR fetcher
 export const swrFetcher = (url) =>
   fetch(url, { credentials: 'include', cache: 'no-store' })
     .then(async (r) => {
@@ -44,12 +53,3 @@ export const swrFetcher = (url) =>
     });
 
 export function googleLoginUrl() { return `${API}/auth/google`; }
-
-import { mutate as swrMutate } from 'swr';
-export async function apiLogoutAndClear() {
-  try { await request('POST', '/auth/logout'); } catch {}
-  // เคลียร์ cache /auth/me ให้แน่ใจว่า header เปลี่ยนทันที
-  await swrMutate(`${API}/auth/me`, { user: null }, { revalidate: false });
-  // กันคีย์อื่นที่ลงท้าย /auth/me
-  await swrMutate((key) => typeof key === 'string' && key.endsWith('/auth/me'), { user: null }, { revalidate: false });
-}

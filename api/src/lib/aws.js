@@ -43,20 +43,16 @@ export async function createPresignedGet(key, downloadName='file', expiresInSec=
 
 // ✅ ใหม่: Presigned POST สำหรับ Browser Upload
 export async function createPresignedPostUrl({ key, contentType, maxSize = 1024 * 1024 * 100, expires = 3600 }) {
-  // หมายเหตุ: บัคเก็ตคุณ public-read อยู่แล้ว—ถ้าต้องการ ให้ใส่ ACL ลงใน form fields ได้
   return await createPresignedPost(s3Client, {
     Bucket: BUCKET,
     Key: key,
-    Expires: expires, // วินาที
+    Expires: expires,
     Conditions: [
-      ["content-length-range", 1, maxSize],
-      ["starts-with", "$Content-Type", contentType?.split('/')[0] || ""]
-      // ถ้าอยากบังคับ public-read เฉพาะอันนี้: ["eq", "$acl", "public-read"]
+      ["content-length-range", 1, maxSize]
     ],
     Fields: {
-      "Content-Type": contentType || "application/octet-stream",
-      // "acl": "public-read"   // ใส่ถ้าต้องการ
-    },
+      "Content-Type": contentType || "application/octet-stream"
+    }
   });
 }
 

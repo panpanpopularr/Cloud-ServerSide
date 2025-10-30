@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'standalone',   // สำคัญ!
+  output: 'standalone',
   reactStrictMode: true,
 };
 export default nextConfig;

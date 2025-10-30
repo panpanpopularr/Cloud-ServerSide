@@ -18,7 +18,7 @@ import {
   normalizeUploadName,   // ✅ นำเข้าใหม่
 } from '../lib/storage.js';
 
-import { createPresignedPostUrl } from '../lib/aws.js';
+import { createPresignedPostUrl, createPresignedGet } from '../lib/aws.js';
 
 const router = Router();
 const upload = multer({ dest: path.resolve('uploads/tmp') });
@@ -212,6 +212,42 @@ router.get('/files/:id/download', ensureAuth, async (req, res) => {
     const url = await createPresignedGet(key, original, 3600);
     // redirect ไปยัง presigned URL
     return res.redirect(302, url);
+  } catch (e) {
+    console.error('[files.download]', e);
+    res.status(500).json({ error: 'download_failed' });
+  }
+});
+
+router.get('/files/:id/download', ensureAuth, async (req, res) => {
+  try {
+    const rec = await FileModel.findById(req.params.id);
+    if (!rec) return res.status(404).json({ error: 'not_found' });
+
+    const displayName = rec.originalname || rec.name || 'file';
+    const mimeType = rec.mimetype || mime.lookup(displayName) || 'application/octet-stream';
+    const key = rec.filename || rec.s3Key || '';
+
+    if (STORAGE_DRIVER === 's3') {
+      if (!key) return res.status(404).json({ error: 'missing_key' });
+
+      // แบบ public:
+      const url = rec.url || s3PublicUrl(key);
+      return res.redirect(302, url);
+
+      // ถ้าอยากใช้ presigned GET (ลิงก์หมดอายุ):
+      // const url = await createPresignedGet(key, displayName, 3600);
+      // return res.redirect(302, url);
+    }
+
+    // local storage
+    const abs = path.resolve('uploads', String(rec.projectId), String(key));
+    if (!fs.existsSync(abs)) return res.status(404).json({ error: 'file_not_found' });
+
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(displayName)}`);
+    const stream = fs.createReadStream(abs);
+    stream.on('error', () => res.status(500).end());
+    stream.pipe(res);
   } catch (e) {
     console.error('[files.download]', e);
     res.status(500).json({ error: 'download_failed' });

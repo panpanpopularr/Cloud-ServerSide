@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev -H 0.0.0.0 -p 3000",
     "build": "next build",
-    "start": "node .next/standalone/server.js -p $PORT"
+    "start": "next start -p $PORT"
   },
   "engines": {
     "node": "22.x"

@@ -1,3 +1,7 @@
+// web/app/health/route.js
 export async function GET() {
-  return new Response('OK', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 }

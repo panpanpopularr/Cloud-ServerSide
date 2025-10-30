@@ -1,4 +1,5 @@
-import 'dotenv/config'; // ✅ ต้องอยู่บรรทัดแรก
+// src/server.js
+import 'dotenv/config';                   // ✅ ต้องอยู่บนสุดเสมอ
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -17,53 +18,57 @@ import taskRoutes from './routes/task.routes.js';
 import fileRoutes from './routes/file.routes.js';
 import activityRoutes from './routes/activity.routes.js';
 import memberRoutes from './routes/member.routes.js';
-import chatRoutes from './routes/chat.routes.js';   // ← ใช้ชื่อเดียวกับไฟล์
+import chatRoutes from './routes/chat.routes.js';
 import { initSocket } from './lib/socket.js';
 import { ensureAdminSeed } from './lib/bootstrap.js';
 import { attachUser } from './middlewares/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 
-const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
-const PORT = process.env.PORT || 4000;
+const app = express();
+app.set('trust proxy', 1);
 
-// ===== CORS config =====
-const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || FRONTEND)
-  .split(',')
-  .map((s) => s.trim())
-  .filter(Boolean);
+// health check (Elastic Beanstalk ใช้ path นี้)
+app.get('/health', (_req, res) => res.status(200).json({ ok: true }));
 
+// ===== CORS =====
+const RAW_ORIGINS =
+  process.env.CORS_ORIGIN ||
+  process.env.CORS_ORIGINS ||
+  process.env.FRONTEND_URL ||
+  'http://localhost:3000';
+
+const ALLOWED_ORIGINS = RAW_ORIGINS.split(',').map(s => s.trim()).filter(Boolean);
 const isAllowedOrigin = (origin) => {
-  if (!origin) return true;
+  if (!origin) return true;                      // health checks / curl
   if (ALLOWED_ORIGINS.includes(origin)) return true;
   if (/^http:\/\/(localhost|127\.0\.0\.1):3000$/.test(origin)) return true;
   if (/^https?:\/\/.*\.trycloudflare\.com$/.test(origin)) return true;
   return false;
 };
 
-const app = express();
-app.set('trust proxy', 1);
-app.get('/health', (_req, res) => res.json({ ok: true }));
-
-// CORS
-app.use(cors({
+const corsConfig = {
   origin: (origin, cb) => cb(null, isAllowedOrigin(origin)),
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+  optionsSuccessStatus: 204,
+};
 
+app.use(cors(corsConfig));  
+
+// Core middlewares
 app.use(morgan('dev'));
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 app.use(cookieParser());
 app.use(attachUser);
 app.use(passport.initialize());
 
-// static
+// Static uploads (ตรง /var/app/current/uploads เวลารันบน EB)
 app.use('/uploads', express.static(path.resolve('uploads')));
 
-// routes (base)
+// Routes
 app.use(authRoutes);
 app.use(adminRoutes);
 app.use(projectRoutes);
@@ -85,16 +90,22 @@ app.use('/api', memberRoutes);
 app.use('/api', userRoutes);
 app.use('/api', chatRoutes);
 
-// 404
+// 404 fallback
 app.use((req, res) => res.status(404).send(`Cannot ${req.method} ${req.url}`));
 
-// start
+// ===== Start server =====
+// ⚠️ EB จะส่ง PORT มาใน env; bind 0.0.0.0 ให้รับผ่าน Nginx ได้แน่ ๆ
+const PORT = Number(process.env.PORT || 8080);
+const HOST = '0.0.0.0';
+
 const server = http.createServer(app);
+
+// socket.io ควรกำหนดตัวตรวจสอบ origin ให้ใช้ฟังก์ชันเดียวกัน
 initSocket(server, { corsOrigin: (origin) => isAllowedOrigin(origin) });
 
-server.listen(PORT, async () => {
+server.listen(PORT, HOST, async () => {
   await ensureAdminSeed();
-  console.log(`🚀 API running on http://localhost:${PORT}`);
-  console.log(`CORS allowed origins: ${ALLOWED_ORIGINS.join(', ')}`);
+  console.log(`🚀 API running on http://${HOST}:${PORT}`);
+  console.log(`CORS allowed origins: ${ALLOWED_ORIGINS.join(', ') || '(none)'}`);
   console.log(`Trust proxy: ON`);
 });

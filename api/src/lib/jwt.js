@@ -1,50 +1,37 @@
+// api/src/lib/jwt.js
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
-export const COOKIE_NAME = 'jwt'; // ✅ มาตรฐานหลักใช้ชื่อนี้
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/,'');
+const API_URL = (process.env.API_URL || `http://localhost:${process.env.PORT||4000}`).replace(/\/+$/,'');
+const USE_HTTPS =
+  API_URL.startsWith('https://') || FRONTEND_URL.startsWith('https://');
 
-export function signUser(userLike) {
-  // เก็บเท่าที่จำเป็น
-  const payload = {
-    uid: userLike.id || userLike.uid,
-    role: userLike.role,
-    name: userLike.name ?? null,
-  };
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+const cookieBase = {
+  httpOnly: true,
+  secure: USE_HTTPS,
+  sameSite: USE_HTTPS ? 'none' : 'lax',
+  path: '/',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 วัน
+};
+
+const isCrossSite = (() => {
+  try {
+    const fe = new URL(FRONTEND_URL);
+    const api = new URL(API_URL);
+    return fe.origin !== api.origin;
+  } catch { return true; }
+})();
+
+export function signUser(user, opts = {}) {
+  const payload = { id: user.id, email: user.email, role: user.role, name: user.name };
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d', ...opts });
 }
 
 export function setAuthCookie(res, token) {
-  res.cookie(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',   // local dev
-    secure: false,     // ถ้า reverse proxy https ค่อยเปลี่ยนเป็น true
-    path: '/',
-    maxAge: 1000 * 60 * 60 * 24 * 7,
-  });
+  res.cookie('jwt', token, cookieBase);
 }
 
-// ✅ เคลียร์ทั้งชื่อใหม่ (jwt) และชื่อเดิม (token)
-export function clearAuthCookies(res) {
-  ['jwt', 'token'].forEach((name) => {
-    res.clearCookie(name, { path: '/' });
-  });
-}
-
-// ✅ ดึงโทเคนจากคำขอ (รองรับทั้งชื่อใหม่/เก่า และ Authorization header)
-export function getTokenFromReq(req) {
-  return (
-    req.cookies?.jwt ||
-    req.cookies?.token ||
-    (req.headers?.authorization?.startsWith('Bearer ')
-      ? req.headers.authorization.slice(7)
-      : null)
-  );
-}
-
-export function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch {
-    return null;
-  }
+export function clearAuthCookie(res) {
+  res.clearCookie('jwt', { ...cookieBase, maxAge: 0 });
 }

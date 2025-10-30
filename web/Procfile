@@ -1,1 +1,1 @@
-web: node .next/standalone/server.js -p $PORT
+web: npm run start

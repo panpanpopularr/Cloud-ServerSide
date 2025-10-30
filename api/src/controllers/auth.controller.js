@@ -1,27 +1,19 @@
 // api/src/controllers/auth.controller.js
 import bcrypt from 'bcryptjs';
 import prisma from '../lib/prisma.js';
-import { signUser, setAuthCookie } from '../lib/jwt.js';
+import { signUser, setAuthCookie, clearAuthCookie } from '../lib/jwt.js';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
+const FRONTEND = (process.env.FRONTEND_URL || 'http://localhost:3000').replace(/\/+$/,'');
 
 function sendNoStore(res) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
 }
-function clearAllAuthCookies(res) {
-  const base = { httpOnly: true, sameSite: 'lax', secure: false };
-  res.clearCookie('jwt',   { ...base, path: '/'   });
-  res.clearCookie('jwt',   { ...base, path: '/api' });
-  res.clearCookie('token', { ...base, path: '/'   });
-  res.clearCookie('token', { ...base, path: '/api' });
-  res.cookie('jwt',  '', { ...base, path: '/', maxAge: 0 });
-  res.cookie('token','', { ...base, path: '/', maxAge: 0 });
-}
 
-/* ------------ register ------------ */
+/* register */
 export const register = async (req, res) => {
   try {
     const email = (req.body?.email || '').toLowerCase().trim();
@@ -31,7 +23,7 @@ export const register = async (req, res) => {
 
     const hashed = await bcrypt.hash(password, 10);
     const user = await prisma.user.create({
-      data: { email, name, passwordHash: hashed, role: 'user' },  // ✅ บันทึกลง passwordHash
+      data: { email, name, passwordHash: hashed, role: 'user' },
       select: { id: true, email: true, role: true, name: true },
     });
 
@@ -46,17 +38,15 @@ export const register = async (req, res) => {
   }
 };
 
-/* ------------ login ------------ */
+/* login */
 export const login = async (req, res) => {
   try {
     const email = (req.body?.email || '').toLowerCase().trim();
     const password = (req.body?.password || '').toString();
 
-    // ต้องดึง passwordHash มาเทียบ
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) return res.status(401).json({ error: 'invalid_credentials' });
 
-    // รองรับเรคอร์ดเก่าที่อาจมี field password
     const hash = user.passwordHash || user.password;
     if (!hash) return res.status(401).json({ error: 'invalid_credentials' });
 
@@ -74,14 +64,11 @@ export const login = async (req, res) => {
   }
 };
 
-/* ------------ me ------------ */
+/* me */
 export const me = async (req, res) => {
   try {
     const id = req.user?.id || req.user?.uid;
-    if (!id) {
-      sendNoStore(res);
-      return res.json({ user: null });
-    }
+    if (!id) { sendNoStore(res); return res.json({ user: null }); }
 
     const u = await prisma.user.findUnique({
       where: { id },
@@ -96,27 +83,26 @@ export const me = async (req, res) => {
   }
 };
 
-/* ------------ logout ------------ */
+/* logout */
 export const logout = async (_req, res) => {
-  clearAllAuthCookies(res);
+  clearAuthCookie(res);
   sendNoStore(res);
   res.json({ ok: true });
 };
 
-/* ------------ Google OAuth callback / finalize ------------ */
+/* Google callback -> redirect กลับ FE พร้อม token ชั่วคราว */
 export async function googleCallback(req, res) {
   try {
     const u = req.user;
-    const token = jwt.sign({ uid: u.id }, JWT_SECRET, { expiresIn: '7d' });
-    const FE = (process.env.FRONTEND_URL || 'http://localhost:3000');
-    return res.redirect(`${FE}/login?auth=google&token=${encodeURIComponent(token)}`);
+    const token = jwt.sign({ uid: u.id }, JWT_SECRET, { expiresIn: '10m' });
+    return res.redirect(`${FRONTEND}/login?auth=google&token=${encodeURIComponent(token)}`);
   } catch (e) {
     console.error('[googleCallback]', e);
-    const FE = (process.env.FRONTEND_URL || 'http://localhost:3000');
-    return res.redirect(`${FE}/login?auth=failed`);
+    return res.redirect(`${FRONTEND}/login?auth=failed`);
   }
 }
 
+/* FE ส่ง token ชั่วคราวมาแลกเป็น first-party cookie */
 export async function finalizeFromToken(req, res) {
   try {
     const { token } = req.body || {};
@@ -131,7 +117,7 @@ export async function finalizeFromToken(req, res) {
     });
     if (!u) return res.status(404).json({ error: 'user_not_found' });
 
-    const firstPartyToken = signUser({ id: u.id, email: u.email, role: u.role, name: u.name });
+    const firstPartyToken = signUser(u);
     setAuthCookie(res, firstPartyToken);
     sendNoStore(res);
     return res.json({ ok: true });

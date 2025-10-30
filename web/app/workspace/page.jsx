@@ -271,7 +271,10 @@ export default function Page() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, contentType: file.type || 'application/octet-stream' }),
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+        }),
       });
       if (!psRes.ok) throw new Error('presign_failed');
       const { url, fields, key } = await psRes.json();
@@ -281,16 +284,17 @@ export default function Page() {
       Object.entries(fields).forEach(([k, v]) => fd.append(k, v));
       fd.append('file', file);
       const s3Res = await fetch(url, { method: 'POST', body: fd });
-      if (!s3Res.ok) throw new Error('s3_upload_failed');
+      const s3Text = await s3Res.text();
+      if (!s3Res.ok) throw new Error(`s3_upload_failed: ${s3Text}`);
 
-      // 3) แจ้ง API ให้สร้างเรคอร์ด/แอคทิวิตี้
+      // 3) แจ้ง API ให้ commit metadata
       const commitRes = await fetch(`${API}/projects/${selected}/files/commit`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           key,
-          filename: file.name,       // เก็บชื่อเดิม (ไทย)
+          filename: file.name,
           size: file.size,
           mimetype: file.type || 'application/octet-stream',
         }),
@@ -300,18 +304,9 @@ export default function Page() {
       fileRef.current.value = '';
       await refetchFiles();
       await refetchActivity();
+
     } catch (e) {
-      // ❗ ถ้า direct พลาด ให้ fallback ไปเส้นทาง API เดิม
-      try {
-        const fd = new FormData();
-        fd.append('file', fileRef.current.files[0]);
-        const res = await fetch(`${API}/projects/${selected}/files/upload`, { method: 'POST', credentials: 'include', body: fd });
-        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-        fileRef.current.value = '';
-        await refetchFiles(); await refetchActivity();
-      } catch (err) {
-        alert('อัปโหลดไม่สำเร็จ: ' + (err?.message || e?.message));
-      }
+      alert('อัปโหลดไม่สำเร็จ: ' + e.message);
     }
   };
 
